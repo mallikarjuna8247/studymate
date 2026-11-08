@@ -12,6 +12,7 @@ def complete(messages, model="qwen3:8b", temperature=0.2):
         "model": model,
         "messages": messages,
         "stream": False,
+        "think": False,
         "options": {
             "temperature": temperature
         }
