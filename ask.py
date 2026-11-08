@@ -1,6 +1,6 @@
 from pdf_loader import load_pdf
 from chunker import chunk_pages
-from vector_store import add_chunks, search
+from create_store import add_chunks, search
 from llm_client import complete
 
 # Run once to load your PDF

@@ -1,21 +1,41 @@
-# llm_client.py
-import os
+
+import json
 import time
-from openai import OpenAI
+import urllib.request
 
-client = OpenAI()
+OLLAMA_URL = "http://localhost:11434"
 
-def complete(messages, model="gpt-4o-mini", temperature=0.2):
+def complete(messages, model="qwen3:8b", temperature=0.2):
     start = time.time()
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=temperature,
+
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "options": {
+            "temperature": temperature
+        }
+    }
+
+    data = json.dumps(payload).encode("utf-8")
+
+    request = urllib.request.Request(
+        f"{OLLAMA_URL}/api/chat",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
     )
+
+    with urllib.request.urlopen(request, timeout=300) as response:
+        result = json.loads(response.read().decode("utf-8"))
+
     return {
-        "text": response.choices[0].message.content,
-        "prompt_tokens": response.usage.prompt_tokens,
-        "completion_tokens": response.usage.completion_tokens,
-        "total_tokens": response.usage.total_tokens,
+        "text": result["message"]["content"],
+        "prompt_tokens": result.get("prompt_eval_count", 0),
+        "completion_tokens": result.get("eval_count", 0),
+        "total_tokens": (
+            result.get("prompt_eval_count", 0)
+            + result.get("eval_count", 0)
+        ),
         "latency_seconds": round(time.time() - start, 2),
     }
