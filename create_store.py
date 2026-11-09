@@ -1,11 +1,9 @@
-
 import json
 import urllib.request
 
 import chromadb
 
 OLLAMA_URL = "http://localhost:11434"
-
 EMBEDDING_MODEL = "nomic-embed-text"
 
 chroma_client = chromadb.PersistentClient(
@@ -30,7 +28,7 @@ def ollama_request(endpoint, payload):
 def get_collection():
     return chroma_client.get_or_create_collection(
         name="studymate",
-        metadata={"hnsw:space": "cosine"}
+        metadata={"hnsw:space": "cosine"},
     )
 
 
@@ -39,14 +37,18 @@ def generate_embeddings(texts):
         "/api/embed",
         {
             "model": EMBEDDING_MODEL,
-            "input": texts
-        }
+            "input": texts,
+        },
     )
 
     return response["embeddings"]
 
 
-def add_chunks(chunks):
+def add_chunks(
+    chunks,
+    knowledge_base_id=None,
+    document_id=None,
+):
     if not chunks:
         print("No chunks available.")
         return
@@ -54,33 +56,81 @@ def add_chunks(chunks):
     collection = get_collection()
 
     texts = [chunk["text"] for chunk in chunks]
-
     embeddings = generate_embeddings(texts)
+
+    metadatas = []
+
+    for chunk in chunks:
+        metadata = {
+            "document": chunk["document"],
+            "page": chunk["page"],
+        }
+
+        # Add KB metadata only for Knowledge Base uploads.
+        if knowledge_base_id:
+            metadata["knowledge_base_id"] = knowledge_base_id
+
+        if document_id:
+            metadata["document_id"] = document_id
+
+        metadatas.append(metadata)
 
     collection.upsert(
         ids=[chunk["id"] for chunk in chunks],
         embeddings=embeddings,
         documents=texts,
-        metadatas=[
-            {
-                "document": chunk["document"],
-                "page": chunk["page"],
-            }
-            for chunk in chunks
-        ],
+        metadatas=metadatas,
     )
 
     print(f"Stored {len(chunks)} chunks successfully.")
 
 
-def search(query, top_k=5):
+def search(
+    query,
+    top_k=5,
+    knowledge_base_id=None,
+):
     collection = get_collection()
+
+    if knowledge_base_id:
+        # Count only chunks belonging to this Knowledge Base.
+        matching_records = collection.get(
+            where={"knowledge_base_id": knowledge_base_id},
+            include=[],
+        )
+
+        matching_count = len(matching_records["ids"])
+
+        if matching_count == 0:
+            return {
+                "documents": [[]],
+                "metadatas": [[]],
+            }
+
+        result_count = min(top_k, matching_count)
+
+    else:
+        # Legacy search across the original collection.
+        collection_count = collection.count()
+
+        if collection_count == 0:
+            return {
+                "documents": [[]],
+                "metadatas": [[]],
+            }
+
+        result_count = min(top_k, collection_count)
 
     query_embedding = generate_embeddings([query])[0]
 
-    results = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=min(top_k, collection.count()),
-    )
+    query_arguments = {
+        "query_embeddings": [query_embedding],
+        "n_results": result_count,
+    }
 
-    return results
+    if knowledge_base_id:
+        query_arguments["where"] = {
+            "knowledge_base_id": knowledge_base_id,
+        }
+
+    return collection.query(**query_arguments)

@@ -1,6 +1,7 @@
 
 from pathlib import Path
 from uuid import uuid4
+import sqlite3
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,11 +9,21 @@ from pydantic import BaseModel, Field
 
 from rag_service import process_pdf, answer_question
 
+from metadata_db import (
+    initialize_db,
+    create_knowledge_base,
+    list_knowledge_bases,
+    get_knowledge_base,
+    list_documents,
+    add_document,
+    update_document_status,
+)
+
 
 app = FastAPI(
     title="StudyMate API",
     description="PDF-based question answering using RAG and Ollama",
-    version="1.0.0",
+    version="1.1.0",
 )
 
 app.add_middleware(
@@ -26,21 +37,199 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DATA_DIR = Path("data")
+DATA_DIR = Path(__file__).resolve().parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
+# Initialize metadata tables when the API starts.
+initialize_db()
+
+
+# --------------------------------------------------
+# Request models
+# --------------------------------------------------
 
 class QuestionRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
 
 
+class KnowledgeBaseRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    description: str = Field(default="", max_length=500)
+
+
+# --------------------------------------------------
+# Health API
+# --------------------------------------------------
+
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "StudyMate API"}
+    return {
+        "status": "ok",
+        "service": "StudyMate API"
+    }
 
+
+# --------------------------------------------------
+# Knowledge Base APIs
+# --------------------------------------------------
+
+@app.post("/knowledge-bases", status_code=201)
+def create_knowledge_base_api(request: KnowledgeBaseRequest):
+
+    try:
+        knowledge_base = create_knowledge_base(
+            name=request.name,
+            description=request.description,
+        )
+
+        return {
+            "message": "Knowledge Base created successfully.",
+            "knowledge_base": knowledge_base,
+        }
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="A Knowledge Base with this name already exists.",
+        ) from exc
+
+
+@app.get("/knowledge-bases")
+def get_knowledge_bases_api():
+
+    return {
+        "knowledge_bases": list_knowledge_bases()
+    }
+
+
+@app.get("/knowledge-bases/{knowledge_base_id}")
+def get_knowledge_base_api(knowledge_base_id: str):
+
+    knowledge_base = get_knowledge_base(knowledge_base_id)
+
+    if not knowledge_base:
+        raise HTTPException(
+            status_code=404,
+            detail="Knowledge Base not found.",
+        )
+
+    return {
+        "knowledge_base": knowledge_base
+    }
+
+
+# --------------------------------------------------
+# Knowledge Base PDF Upload API
+# --------------------------------------------------
+
+@app.post("/knowledge-bases/{knowledge_base_id}/documents")
+async def upload_knowledge_base_documents(
+    knowledge_base_id: str,
+    files: list[UploadFile] = File(...),
+):
+    knowledge_base = get_knowledge_base(knowledge_base_id)
+
+    if not knowledge_base:
+        raise HTTPException(
+            status_code=404,
+            detail="Knowledge Base not found.",
+        )
+
+    if not files:
+        raise HTTPException(
+            status_code=400,
+            detail="Please select at least one PDF.",
+        )
+
+    uploaded_documents = []
+    failed_documents = []
+
+    for file in files:
+        original_name = (
+            Path(file.filename).name if file.filename else ""
+        )
+
+        try:
+            if not original_name or not original_name.lower().endswith(".pdf"):
+                raise ValueError("Please upload a PDF file.")
+
+            content = await file.read()
+
+            if not content:
+                raise ValueError("The uploaded PDF is empty.")
+
+            if len(content) > 20 * 1024 * 1024:
+                raise ValueError("PDF size must not exceed 20 MB.")
+
+            stored_name = f"{uuid4().hex}_{original_name}"
+            pdf_path = DATA_DIR / stored_name
+
+            # Create document metadata in SQLite.
+            document_id = add_document(
+                knowledge_base_id=knowledge_base_id,
+                filename=original_name,
+                stored_filename=stored_name,
+            )
+
+            update_document_status(document_id, "PROCESSING")
+
+            pdf_path.write_bytes(content)
+
+            # Extract, chunk, generate embeddings and index.
+            result = process_pdf(
+                str(pdf_path),
+                knowledge_base_id=knowledge_base_id,
+                document_id=document_id,
+            )
+
+            update_document_status(document_id, "COMPLETED")
+
+            uploaded_documents.append({
+                "document_id": document_id,
+                "filename": original_name,
+                "status": "COMPLETED",
+                **result,
+            })
+
+        except Exception as exc:
+            if "document_id" in locals():
+                try:
+                    update_document_status(document_id, "FAILED")
+                except Exception:
+                    pass
+
+            failed_documents.append({
+                "filename": original_name or "Unknown",
+                "status": "FAILED",
+                "error": str(exc),
+            })
+
+        finally:
+            await file.close()
+
+    return {
+        "message": "Knowledge Base document upload processing completed.",
+        "knowledge_base_id": knowledge_base_id,
+        "uploaded_count": len(uploaded_documents),
+        "failed_count": len(failed_documents),
+        "uploaded_documents": uploaded_documents,
+        "failed_documents": failed_documents,
+    }
+
+
+# --------------------------------------------------
+# Existing PDF Upload API
+# --------------------------------------------------
 
 @app.post("/upload")
 async def upload_pdf(file: UploadFile = File(...)):
+
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(
             status_code=400,
@@ -86,8 +275,41 @@ async def upload_pdf(file: UploadFile = File(...)):
         await file.close()
 
 
+# --------------------------------------------------
+# Knowledge Base Question Answering API
+# --------------------------------------------------
+
+@app.post("/knowledge-bases/{knowledge_base_id}/ask")
+def ask_knowledge_base(
+    knowledge_base_id: str,
+    request: QuestionRequest,
+):
+    try:
+        return answer_question(
+            request.question,
+            knowledge_base_id=knowledge_base_id,
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Question processing failed: {str(exc)}",
+        ) from exc
+
+
+# --------------------------------------------------
+# Existing Question Answering API
+# --------------------------------------------------
+
 @app.post("/ask")
 def ask_question(request: QuestionRequest):
+
     try:
         return answer_question(request.question)
 
