@@ -362,22 +362,28 @@ function App() {
                     <div className="sources-panel">
                       <span className="sources-heading">SOURCES</span>
                       <div className="source-list">
-                        {message.sources.map((source, sourceIndex) => (
+                        {pdfUrl && source.document === documentInfo?.document ? (
                           <a
                             className="source-link"
                             key={`${source.document}-${source.page}-${sourceIndex}`}
-                            href={pdfUrl ? `${pdfUrl}#page=${source.page}` : undefined}
+                            href={`${pdfUrl}#page=${source.page}`}
                             target="_blank"
                             rel="noreferrer"
                             title="Open cited PDF page"
                           >
                             <span>▤</span>
-                            <span>
-                              {source.document} · Page {source.page}
-                            </span>
-                            {pdfUrl && <span className="source-arrow">↗</span>}
+                            <span>{source.document} · Page {source.page}</span>
+                            <span className="source-arrow">↗</span>
                           </a>
-                        ))}
+                        ) : (
+                          <div
+                            className="source-link"
+                            key={`${source.document}-${source.page}-${sourceIndex}`}
+                          >
+                            <span>▤</span>
+                            <span>{source.document} · Page {source.page}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}

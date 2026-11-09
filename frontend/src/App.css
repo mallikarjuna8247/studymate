@@ -800,7 +800,77 @@
     display: none;
   }
 
+  
+  /* Chat message alignment */
   .message-row {
-    gap: 9px;
+    display: flex;
+    width: 100%;
+    align-items: flex-start;
+    gap: 12px;
+    margin: 20px 0;
   }
+
+  /* Your questions: right aligned */
+  .message-row.user {
+    justify-content: flex-end;
+    flex-direction: row-reverse;
+  }
+
+  /* StudyMate answers: left aligned */
+  .message-row.assistant {
+    justify-content: flex-start;
+    flex-direction: row;
+  }
+
+  /* Message bubbles */
+  .message-row .message-content {
+    max-width: 75%;
+    padding: 14px 18px;
+    border-radius: 16px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+
+  /* User question bubble */
+  .message-row.user .message-content {
+    background: #6c63ff;
+    color: #ffffff;
+    border-bottom-right-radius: 4px;
+  }
+
+  /* StudyMate answer bubble */
+  .message-row.assistant .message-content {
+    background: #ffffff;
+    color: #263247;
+    border: 1px solid #e8eaf0;
+    border-bottom-left-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  }
+
+  /* Message headings */
+  .message-row .message-content strong {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 13px;
+  }
+
+  /* Message text */
+  .message-row .message-content p {
+    margin: 0;
+    white-space: pre-wrap;
+  }
+
+  /* Sources stay with the assistant answer */
+  .message-row.assistant .sources-panel {
+    margin-top: 14px;
+    text-align: left;
+  }
+
+  /* Responsive layout */
+  @media (max-width: 768px) {
+    .message-row .message-content {
+      max-width: 88%;
+    }
+  }
+
 }
