@@ -21,35 +21,20 @@ function App() {
 
   const fileInput = useRef(null)
 
-  const handleFile = (event) => {
-    const selectedFile = event.target.files[0]
-
-    if (!selectedFile) return
-
-    if (selectedFile.type !== 'application/pdf') {
-      setError('Please select a PDF file.')
-      setFile(null)
-      setUploaded(false)
-      return
-    }
-
-    setFile(selectedFile)
-    setUploaded(false)
-    setError('')
-  }
-
-  const uploadPDF = async () => {
-    if (!file) {
+  // Automatically upload and process the selected PDF.
+  const uploadPDF = async (selectedFile) => {
+    if (!selectedFile) {
       setError('Please select a PDF first.')
       return
     }
 
     setUploading(true)
+    setUploaded(false)
     setError('')
 
     try {
       const formData = new FormData()
-      formData.append('file', file)
+      formData.append('file', selectedFile)
 
       const response = await fetch(`${API_URL}/upload`, {
         method: 'POST',
@@ -76,6 +61,30 @@ function App() {
     } finally {
       setUploading(false)
     }
+  }
+
+  // Selecting a PDF automatically starts the upload process.
+  const handleFile = (event) => {
+    const selectedFile = event.target.files?.[0]
+
+    if (!selectedFile) return
+
+    if (!selectedFile.name.toLowerCase().endsWith('.pdf')) {
+      setError('Please select a PDF file.')
+      setFile(null)
+      setUploaded(false)
+      event.target.value = ''
+      return
+    }
+
+    setFile(selectedFile)
+    setUploaded(false)
+    setError('')
+
+    uploadPDF(selectedFile)
+
+    // Allow selecting the same PDF again later.
+    event.target.value = ''
   }
 
   const sendMessage = async (event) => {
@@ -187,11 +196,13 @@ function App() {
               </h3>
 
               <p>
-                {uploaded
-                  ? 'PDF successfully processed and indexed.'
-                  : file
-                    ? 'PDF selected. Ready for processing.'
-                    : 'Select a PDF document to get started.'}
+                {uploading
+                  ? 'Uploading and processing your PDF. Please wait...'
+                  : uploaded
+                    ? 'PDF successfully processed and indexed.'
+                    : file
+                      ? 'PDF selected.'
+                      : 'Select a PDF document to get started.'}
               </p>
 
               <input
@@ -204,27 +215,23 @@ function App() {
 
               <button
                 className="upload-button"
-                onClick={() => fileInput.current.click()}
+                onClick={() => fileInput.current?.click()}
                 disabled={uploading || asking}
               >
-                {file ? 'Change PDF' : 'Browse PDF'}
+                {uploading
+                  ? 'Processing PDF...'
+                  : file
+                    ? 'Change PDF'
+                    : 'Browse PDF'}
               </button>
 
-              {file && (
-                <button
-                  className="upload-button"
-                  onClick={uploadPDF}
-                  disabled={uploading || asking || uploaded}
-                >
-                  {uploading
-                    ? 'Processing PDF...'
-                    : uploaded
-                      ? 'PDF Processed'
-                      : 'Upload and Process'}
-                </button>
-              )}
-
               <small>PDF documents only · Maximum 20 MB</small>
+
+              {uploading && (
+                <p className="processing-message">
+                  Extracting text, generating embeddings and indexing your document...
+                </p>
+              )}
 
               {uploaded && (
                 <p className="success-message">
@@ -253,6 +260,18 @@ function App() {
               </div>
             ))}
 
+            {uploading && (
+              <div className="message assistant">
+                <div className="message-avatar">✦</div>
+                <div className="message-content">
+                  <strong>StudyMate</strong>
+                  <p>
+                    Processing your PDF. Extracting content and preparing your knowledge base...
+                  </p>
+                </div>
+              </div>
+            )}
+
             {asking && (
               <div className="message assistant">
                 <div className="message-avatar">✦</div>
@@ -279,12 +298,12 @@ function App() {
                   ? 'Ask anything about your PDF...'
                   : 'Upload a PDF before asking a question...'
               }
-              disabled={!uploaded || asking}
+              disabled={!uploaded || uploading || asking}
             />
 
             <button
               type="submit"
-              disabled={!uploaded || !question.trim() || asking}
+              disabled={!uploaded || !question.trim() || uploading || asking}
             >
               {asking ? '...' : '➤'}
             </button>
