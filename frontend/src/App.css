@@ -756,6 +756,118 @@
   }
 }
 
+
+/* =================================
+   STUDYMATE CHAT MESSAGE DESIGN
+================================= */
+
+/* Common message layout */
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding: 24px;
+}
+
+/* Individual message alignment */
+.message {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+}
+
+/* User messages on the right */
+.message.user {
+  flex-direction: row-reverse;
+  justify-content: flex-start;
+}
+
+/* Assistant messages on the left */
+.message.assistant {
+  flex-direction: row;
+  justify-content: flex-start;
+}
+
+/* Common message bubble */
+.message-content {
+  max-width: min(75%, 760px);
+  padding: 16px 20px;
+  border-radius: 18px;
+  line-height: 1.6;
+  box-shadow: 0 4px 12px rgba(30, 41, 59, 0.08);
+  overflow-wrap: anywhere;
+}
+
+/* User bubble - Lavender */
+.message.user .message-content {
+  background: linear-gradient(135deg, #EDE9FE, #DDD6FE);
+  border: 1px solid #C4B5FD;
+  color: #312E81;
+  border-bottom-right-radius: 5px;
+}
+
+/* StudyMate bubble - Mint green */
+.message.assistant .message-content {
+  background: linear-gradient(135deg, #D1FAE5, #A7F3D0);
+  border: 1px solid #6EE7B7;
+  color: #064E3B;
+  border-bottom-left-radius: 5px;
+}
+
+/* Message headings */
+.message-content strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* Message text */
+.message-text {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+/* Avatars */
+.message-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: 12px;
+  font-weight: 700;
+}
+
+/* User avatar */
+.message.user .message-avatar {
+  background: #DDD6FE;
+  color: #5B21B6;
+}
+
+/* Assistant avatar */
+.message.assistant .message-avatar {
+  background: #A7F3D0;
+  color: #047857;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+  .messages {
+    padding: 12px;
+  }
+
+  .message-content {
+    max-width: 88%;
+    padding: 13px 15px;
+  }
+}
+
+
 @media (max-width: 620px) {
   .sidebar {
     display: none;
@@ -923,3 +1035,168 @@
   }
 
 }
+
+
+
+/* =========================================
+   STUDYMATE - FINAL CHAT UI OVERRIDES
+========================================= */
+
+/* Main application layout */
+.app {
+  display: flex;
+  min-height: 100vh;
+  background: #F8FAFC;
+}
+
+.main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+
+/* Welcome section */
+.welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 30px 0;
+  text-align: center;
+}
+
+.welcome-icon {
+  display: grid;
+  place-items: center;
+  width: 53px;
+  height: 53px;
+  margin-bottom: 18px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #7164E9, #A18AF7);
+  color: white;
+  font-size: 28px;
+}
+
+/* Chat message container */
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+  padding: 25px 15px;
+}
+
+/* Message rows */
+.message {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+}
+
+/* User messages on right */
+.message.user {
+  flex-direction: row-reverse;
+}
+
+/* Assistant messages on left */
+.message.assistant {
+  flex-direction: row;
+}
+
+/* Common message bubble */
+.message-content {
+  max-width: min(75%, 760px);
+  min-width: 0;
+  padding: 16px 20px;
+  border-radius: 18px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  box-shadow: 0 4px 12px rgba(30, 41, 59, 0.08);
+}
+
+/* User - Premium lavender */
+.message.user .message-content {
+  background: linear-gradient(135deg, #EDE9FE, #DDD6FE);
+  border: 1px solid #C4B5FD;
+  color: #312E81;
+  border-bottom-right-radius: 5px;
+}
+
+/* StudyMate - Fresh mint */
+.message.assistant .message-content {
+  background: linear-gradient(135deg, #D1FAE5, #A7F3D0);
+  border: 1px solid #6EE7B7;
+  color: #064E3B;
+  border-bottom-left-radius: 5px;
+}
+
+/* Message heading */
+.message-content strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* Message text */
+.message-text {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+/* Message avatars */
+.message-avatar {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  place-items: center;
+  border-radius: 12px;
+  font-weight: 700;
+}
+
+/* User avatar */
+.message.user .message-avatar {
+  background: #DDD6FE;
+  color: #5B21B6;
+}
+
+/* StudyMate avatar */
+.message.assistant .message-avatar {
+  background: #A7F3D0;
+  color: #047857;
+}
+
+/* Loading messages */
+.message.assistant .message-content p {
+  margin: 0;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 620px) {
+  .sidebar {
+    display: none;
+  }
+
+  .chat-area {
+    padding: 15px;
+  }
+
+  .messages {
+    padding: 15px 0;
+    gap: 18px;
+  }
+
+  .message-content {
+    max-width: 88%;
+    padding: 13px 15px;
+  }
+
+  .chat-footer {
+    padding: 10px 12px 15px;
+  }
+}
+

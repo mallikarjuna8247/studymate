@@ -17,11 +17,11 @@ function getItems(data, keys = []) {
 }
 
 function getKnowledgeBaseId(item) {
-  return item.id || item.knowledge_base_id
+  return String(item.id ?? item.knowledge_base_id)
 }
 
 function getDocumentId(item) {
-  return item.id || item.document_id
+  return String(item.id ?? item.document_id)
 }
 
 function getDocumentName(item) {
@@ -648,7 +648,34 @@ function App() {
                     : 'S'}
                 </div>
 
-                <div className="message-content">
+                <div
+                  className="message-content"
+                  style={{
+                    backgroundColor:
+                      message.role === 'user' ? '#EEF2FF' : '#F1F5F9',
+
+                    color:
+                      message.role === 'user' ? '#3730A3' : '#1E293B',
+
+                    padding: '16px 20px',
+                    borderRadius: '18px',
+
+                    minWidth: '200px',
+                    maxWidth: '750px',
+
+                    border:
+                      message.role === 'user'
+                        ? '1px solid #C7D2FE'
+                        : '1px solid #E2E8F0',
+
+                    boxShadow: '0 2px 8px rgba(15, 23, 42, 0.04)',
+
+                    lineHeight: '1.7',
+                    fontSize: '15px',
+
+                    transition: 'all 0.2s ease'
+                  }}
+                >
 
                   <strong>
                     {message.role === 'assistant'
