@@ -305,21 +305,16 @@ function App() {
         throw new Error(data.detail || 'Unable to generate an answer.')
       }
 
-      const sourceText = data.sources?.length
-        ? '\n\nSources:\n' +
-          data.sources
-            .map(
-              (source) =>
-                `${source.document}, page ${source.page}`
-            )
-            .join('\n')
-        : '\n\nNo document sources were returned.'
+      const sources = (data.sources || []).map(
+        (source) => `${source.document}, page ${source.page}`
+      )
 
       setMessages((previous) => [
         ...previous,
         {
           role: 'assistant',
-          text: data.answer + sourceText
+          text: data.answer || 'I could not generate an answer.',
+          sources
         }
       ])
     } catch (err) {
@@ -527,44 +522,95 @@ function App() {
           </div>
 
           <div className="messages">
-            {messages.map((message, index) => (
-              <div
-                key={index}
-                className={`message ${message.role}`}
-              >
-                <div className="message-avatar">
-                  {message.role === 'assistant' ? '✦' : 'S'}
-                </div>
+            {messages.map((message, index) => {
+              const isUser = message.role === 'user'
 
-                <div className="message-content">
-                  <strong>
-                    {message.role === 'assistant' ? 'StudyMate' : 'You'}
-                  </strong>
-                  <p className="message-text">{message.text}</p>
+              return (
+                <div
+                  key={index}
+                  className={`message-row ${isUser ? 'user-row' : 'assistant-row'}`}
+                  style={{
+                    display: 'flex',
+                    justifyContent: isUser ? 'flex-start' : 'flex-end',
+                    width: '100%',
+                    marginBottom: '18px'
+                  }}
+                >
+                  <div
+                    className={`message-bubble ${message.role}`}
+                    style={{
+                      maxWidth: 'min(75%, 760px)',
+                      padding: '14px 18px',
+                      borderRadius: '16px',
+                      backgroundColor: isUser ? '#DBEAFE' : '#DCFCE7',
+                      border: isUser
+                        ? '1px solid #93C5FD'
+                        : '1px solid #86EFAC',
+                      color: '#202124',
+                      overflowWrap: 'anywhere',
+                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.06)'
+                    }}
+                  >
+                    <strong style={{ display: 'block', marginBottom: '7px' }}>
+                      {isUser ? 'You' : 'StudyMate'}
+                    </strong>
+
+                    <p
+                      className="message-text"
+                      style={{ margin: 0, whiteSpace: 'pre-wrap', lineHeight: 1.6 }}
+                    >
+                      {message.text}
+                    </p>
+
+                    {message.sources?.length > 0 && (
+                      <div
+                        className="sources"
+                        style={{
+                          marginTop: '12px',
+                          paddingTop: '10px',
+                          borderTop: '1px solid rgba(0, 0, 0, 0.12)',
+                          fontSize: '13px'
+                        }}
+                      >
+                        <strong>Sources</strong>
+                        <ul style={{ margin: '6px 0 0', paddingLeft: '20px' }}>
+                          {message.sources.map((source, sourceIndex) => (
+                            <li key={sourceIndex}>{source}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
 
             {uploading && (
-              <div className="message assistant">
-                <div className="message-avatar">✦</div>
-                <div className="message-content">
+              <div
+                className="message-row assistant-row"
+                style={{ display: 'flex', justifyContent: 'flex-end', width: '100%', marginBottom: '18px' }}
+              >
+                <div
+                  className="message-bubble assistant"
+                  style={{ maxWidth: 'min(75%, 760px)', padding: '14px 18px', borderRadius: '16px', background: '#e8f4ef' }}
+                >
                   <strong>StudyMate</strong>
-                  <p>
-                    Processing your PDF. Preparing your Knowledge Base...
-                  </p>
+                  <p>Processing your PDF. Preparing your Knowledge Base...</p>
                 </div>
               </div>
             )}
 
             {asking && (
-              <div className="message assistant">
-                <div className="message-avatar">✦</div>
-                <div className="message-content">
+              <div
+                className="message-row assistant-row"
+                style={{ display: 'flex', justifyContent: 'flex-end', width: '100%', marginBottom: '18px' }}
+              >
+                <div
+                  className="message-bubble assistant"
+                  style={{ maxWidth: 'min(75%, 760px)', padding: '14px 18px', borderRadius: '16px', background: '#e8f4ef' }}
+                >
                   <strong>StudyMate</strong>
-                  <p>
-                    Thinking... Searching the selected document and generating an answer.
-                  </p>
+                  <p>Thinking... Searching the selected document and generating an answer.</p>
                 </div>
               </div>
             )}

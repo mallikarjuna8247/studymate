@@ -873,4 +873,53 @@
     }
   }
 
+  .chat-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding: 20px;
+  }
+
+  .message-row {
+    display: flex;
+    width: 100%;
+  }
+
+  .user-row {
+    justify-content: flex-start;
+  }
+
+  .assistant-row {
+    justify-content: flex-end;
+  }
+
+  .message-bubble {
+    max-width: 75%;
+    padding: 14px 18px;
+    border-radius: 14px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+
+  .message-bubble.user {
+    background: #f0f0f0;
+    color: #222;
+  }
+
+  .message-bubble.assistant {
+    background: #e1f3ed;
+    color: #222;
+  }
+
+  .message-bubble p {
+    margin: 8px 0;
+  }
+
+  .sources {
+    margin-top: 12px;
+    border-top: 1px solid #ccc;
+    padding-top: 10px;
+    font-size: 13px;
+  }
+
 }
