@@ -448,7 +448,16 @@ function App() {
 
             <div className="welcome-icon">✦</div>
 
-            <h1>Your Personal Study Assistant</h1>
+            <h1
+              style={{
+                color: '#1E293B',
+                WebkitTextFillColor: '#1E293B',
+                fontSize: '30px',
+                fontWeight: 700,
+                visibility: 'visible',
+                opacity: 1
+              }}
+            >Your Personal Study Assistant</h1>
 
             <p>
               Choose your knowledge source. Ask questions.
@@ -686,6 +695,19 @@ function App() {
                   <p className="message-text">
                     {message.text}
                   </p>
+                  {message.role === 'assistant' &&
+                    message.sources?.length > 0 && (
+                      <div className="message-sources">
+                        <strong>Sources</strong>
+
+                        {message.sources.map((source, index) => (
+                          <div key={index} className="source-item">
+                            📄 {source.file_name || source.title || source.source}
+                            {source.page && ` — Page ${source.page}`}
+                          </div>
+                        ))}
+                      </div>
+                  )}
 
                 </div>
 
