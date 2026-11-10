@@ -4,15 +4,41 @@ import './App.css'
 
 const API_URL = 'http://127.0.0.1:8000'
 
+function getItems(data, possibleKeys) {
+  if (Array.isArray(data)) return data
+
+  for (const key of possibleKeys) {
+    if (Array.isArray(data?.[key])) {
+      return data[key]
+    }
+  }
+
+  return []
+}
+
+function getKnowledgeBaseId(item) {
+  return item.id || item.knowledge_base_id
+}
+
+function getDocumentId(item) {
+  return item.id || item.document_id
+}
+
+function getDocumentName(item) {
+  return item.filename || item.original_filename || item.stored_filename || 'Untitled PDF'
+}
+
 function App() {
   const [knowledgeBases, setKnowledgeBases] = useState([])
   const [selectedKB, setSelectedKB] = useState('')
   const [documents, setDocuments] = useState([])
+  const [selectedDocumentId, setSelectedDocumentId] = useState('')
 
   const [file, setFile] = useState(null)
   const [uploading, setUploading] = useState(false)
-  const [asking, setAsking] = useState(false)
   const [loadingKBs, setLoadingKBs] = useState(true)
+  const [loadingDocuments, setLoadingDocuments] = useState(false)
+  const [asking, setAsking] = useState(false)
 
   const [question, setQuestion] = useState('')
   const [error, setError] = useState('')
@@ -20,28 +46,34 @@ function App() {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
-      text: 'Hello! I am StudyMate. Select a Knowledge Base, choose your documents, and ask questions about their contents.'
+      text: 'Hello! I am StudyMate. Select a Knowledge Base and document, then ask me questions about your PDFs.'
     }
   ])
 
   const fileInput = useRef(null)
 
-  const currentKB = knowledgeBases.find(
-    (kb) => (kb.id || kb.knowledge_base_id) === selectedKB
-  )
-
   const completedDocuments = documents.filter(
-    (doc) => doc.status === 'COMPLETED'
+    (document) => document.status === 'COMPLETED'
   )
 
-  const uploaded = completedDocuments.length > 0
+  const selectedDocument = documents.find(
+    (document) => getDocumentId(document) === selectedDocumentId
+  )
 
-  // Load available Knowledge Bases when the application starts.
+  const canAsk =
+    selectedDocumentId
+      ? selectedDocument?.status === 'COMPLETED'
+      : completedDocuments.length > 0
+
+  // Load all available Knowledge Bases.
   useEffect(() => {
-    const loadKnowledgeBases = async () => {
-      try {
-        setLoadingKBs(true)
+    let cancelled = false
 
+    async function loadKnowledgeBases() {
+      setLoadingKBs(true)
+      setError('')
+
+      try {
         const response = await fetch(`${API_URL}/knowledge-bases`)
         const data = await response.json()
 
@@ -49,95 +81,102 @@ function App() {
           throw new Error(data.detail || 'Unable to load Knowledge Bases.')
         }
 
-        const list = Array.isArray(data)
-          ? data
-          : data.knowledge_bases || data.items || []
+        const items = getItems(data, ['knowledge_bases', 'items'])
 
-        setKnowledgeBases(list)
+        if (cancelled) return
 
-        if (list.length > 0) {
-          const discoveryKB = list.find((kb) =>
-            (kb.name || '').toLowerCase().includes('discovery agent')
+        setKnowledgeBases(items)
+
+        if (items.length > 0) {
+          const discoveryKB = items.find((item) =>
+            String(item.name || item.title || '')
+              .toLowerCase()
+              .includes('discovery agent')
           )
 
           setSelectedKB(
-            discoveryKB?.id ||
-            discoveryKB?.knowledge_base_id ||
-            list[0].id ||
-            list[0].knowledge_base_id
+            getKnowledgeBaseId(discoveryKB || items[0])
           )
         }
       } catch (err) {
-        setError(err.message || 'Unable to connect to the backend.')
+        if (!cancelled) {
+          setError(err.message || 'Unable to connect to the backend.')
+        }
       } finally {
-        setLoadingKBs(false)
+        if (!cancelled) {
+          setLoadingKBs(false)
+        }
       }
     }
 
     loadKnowledgeBases()
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   // Load documents whenever the selected Knowledge Base changes.
-  useEffect(() => {
-    if (!selectedKB) {
+  const loadDocuments = async (knowledgeBaseId) => {
+    if (!knowledgeBaseId) {
       setDocuments([])
-      return
+      return []
     }
 
-    const loadDocuments = async () => {
-      try {
-        setError('')
+    setLoadingDocuments(true)
 
-        const response = await fetch(
-          `${API_URL}/knowledge-bases/${selectedKB}/documents`
-        )
+    try {
+      const response = await fetch(
+        `${API_URL}/knowledge-bases/${knowledgeBaseId}/documents`
+      )
 
-        const data = await response.json()
+      const data = await response.json()
 
-        if (!response.ok) {
-          throw new Error(data.detail || 'Unable to load documents.')
-        }
-
-        setDocuments(data.documents || [])
-      } catch (err) {
-        setError(err.message || 'Unable to load documents.')
-        setDocuments([])
+      if (!response.ok) {
+        throw new Error(data.detail || 'Unable to load documents.')
       }
-    }
 
-    loadDocuments()
+      const items = getItems(data, ['documents', 'items'])
+
+      setDocuments(items)
+      return items
+    } finally {
+      setLoadingDocuments(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!selectedKB) return
+
+    setDocuments([])
+    setSelectedDocumentId('')
+    setFile(null)
+    setError('')
+
+    loadDocuments(selectedKB).catch((err) => {
+      setError(err.message || 'Unable to load documents.')
+    })
   }, [selectedKB])
 
-  // Upload the selected PDF into the currently selected Knowledge Base.
+  // Upload the selected PDF to the currently selected Knowledge Base.
   const uploadPDF = async (selectedFile) => {
-    if (!selectedKB) {
-      setError('Please select a Knowledge Base first.')
-      return
-    }
-
     if (!selectedFile) {
       setError('Please select a PDF first.')
       return
     }
 
-    if (!selectedFile.name.toLowerCase().endsWith('.pdf')) {
-      setError('Please select a PDF file.')
-      return
-    }
-
-    if (selectedFile.size > 20 * 1024 * 1024) {
-      setError('The PDF must be smaller than 20 MB.')
+    if (!selectedKB) {
+      setError('Please select a Knowledge Base first.')
       return
     }
 
     setUploading(true)
     setError('')
-    setFile(selectedFile)
 
     try {
       const formData = new FormData()
 
-      // The FastAPI endpoint expects a list named "files".
+      // The backend expects the field name "files".
       formData.append('files', selectedFile)
 
       const response = await fetch(
@@ -154,28 +193,35 @@ function App() {
         throw new Error(data.detail || 'PDF upload failed.')
       }
 
-      // Refresh the document list from the database.
-      const documentsResponse = await fetch(
-        `${API_URL}/knowledge-bases/${selectedKB}/documents`
+      const updatedDocuments = await loadDocuments(selectedKB)
+
+      const matchingDocument = updatedDocuments.find(
+        (document) =>
+          getDocumentName(document) === selectedFile.name &&
+          document.status === 'COMPLETED'
       )
 
-      const documentsData = await documentsResponse.json()
-
-      if (!documentsResponse.ok) {
-        throw new Error(
-          documentsData.detail || 'Unable to refresh the document list.'
-        )
+      if (matchingDocument) {
+        setSelectedDocumentId(getDocumentId(matchingDocument))
+      } else {
+        setSelectedDocumentId('')
       }
 
-      setDocuments(documentsData.documents || [])
+      const processedCount =
+        data.documents_processed ??
+        data.processed_count ??
+        data.documents?.length ??
+        1
 
-      setMessages((prev) => [
-        ...prev,
+      setMessages((previous) => [
+        ...previous,
         {
           role: 'assistant',
-          text: `Upload completed for ${selectedFile.name}. Your document status is now available in the Knowledge Base document list.`
+          text: `Successfully uploaded ${selectedFile.name} to the selected Knowledge Base. Processing result: ${processedCount}. Select the PDF from the document selector to ask document-specific questions.`
         }
       ])
+
+      setFile(null)
     } catch (err) {
       setError(err.message || 'Unable to upload the PDF.')
     } finally {
@@ -183,34 +229,35 @@ function App() {
     }
   }
 
+  // Validate and upload a selected PDF.
   const handleFile = (event) => {
     const selectedFile = event.target.files?.[0]
 
     if (!selectedFile) return
 
+    if (!selectedFile.name.toLowerCase().endsWith('.pdf')) {
+      setError('Please select a PDF file.')
+      setFile(null)
+      event.target.value = ''
+      return
+    }
+
+    if (selectedFile.size > 20 * 1024 * 1024) {
+      setError('The PDF must not exceed 20 MB.')
+      event.target.value = ''
+      return
+    }
+
+    setFile(selectedFile)
+    setError('')
+
     uploadPDF(selectedFile)
 
-    // Allow selecting the same PDF again if needed.
+    // Allow selecting the same PDF again later.
     event.target.value = ''
   }
 
-  const handleKnowledgeBaseChange = (event) => {
-    const newKB = event.target.value
-
-    setSelectedKB(newKB)
-    setFile(null)
-    setQuestion('')
-    setError('')
-
-    setMessages([
-      {
-        role: 'assistant',
-        text: 'Knowledge Base changed. Ask a question about the documents available in this Knowledge Base.'
-      }
-    ])
-  }
-
-  // Ask a question using only the selected Knowledge Base.
+  // Ask a question using the selected Knowledge Base and optional document.
   const sendMessage = async (event) => {
     event.preventDefault()
 
@@ -223,13 +270,13 @@ function App() {
       return
     }
 
-    if (!uploaded) {
-      setError('Please upload a PDF or select a Knowledge Base containing a completed document.')
+    if (!canAsk) {
+      setError('Please upload or select a completed PDF before asking questions.')
       return
     }
 
-    setMessages((prev) => [
-      ...prev,
+    setMessages((previous) => [
+      ...previous,
       { role: 'user', text: userQuestion }
     ])
 
@@ -246,7 +293,8 @@ function App() {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            question: userQuestion
+            question: userQuestion,
+            document_id: selectedDocumentId || null
           })
         }
       )
@@ -257,22 +305,21 @@ function App() {
         throw new Error(data.detail || 'Unable to generate an answer.')
       }
 
-      const sourceText = Array.isArray(data.sources) && data.sources.length
-        ? '\n\nSources:\n' + data.sources
-            .map((source) => {
-              const documentName =
-                source.document || source.filename || 'Unknown document'
-
-              return `${documentName}, page ${source.page ?? 'N/A'}`
-            })
+      const sourceText = data.sources?.length
+        ? '\n\nSources:\n' +
+          data.sources
+            .map(
+              (source) =>
+                `${source.document}, page ${source.page}`
+            )
             .join('\n')
-        : '\n\nSources: No source details were returned.'
+        : '\n\nNo document sources were returned.'
 
-      setMessages((prev) => [
-        ...prev,
+      setMessages((previous) => [
+        ...previous,
         {
           role: 'assistant',
-          text: (data.answer || 'No answer was returned.') + sourceText
+          text: data.answer + sourceText
         }
       ])
     } catch (err) {
@@ -281,6 +328,11 @@ function App() {
       setAsking(false)
     }
   }
+
+  const selectedKBName =
+    knowledgeBases.find(
+      (item) => getKnowledgeBaseId(item) === selectedKB
+    )?.name || 'Select a Knowledge Base'
 
   return (
     <div className="app">
@@ -292,16 +344,14 @@ function App() {
 
         <button
           className="new-chat"
-          onClick={() => {
+          onClick={() =>
             setMessages([
               {
                 role: 'assistant',
-                text: 'Hello! Ask me a question about the selected Knowledge Base.'
+                text: 'Hello! I am StudyMate. Select a Knowledge Base and document, then ask me questions about your PDFs.'
               }
             ])
-            setQuestion('')
-            setError('')
-          }}
+          }
         >
           + New Chat
         </button>
@@ -330,104 +380,148 @@ function App() {
             <span className="breadcrumb">Workspace / </span>
             <strong>Chat with PDF</strong>
           </div>
-          <span className="status">AI Assistant</span>
+          <span className="status">● AI Assistant</span>
         </header>
 
         <section className="chat-area">
           <div className="welcome">
             <div className="welcome-icon">✦</div>
             <h1>Your Personal Study Assistant</h1>
-            <p>Upload your PDF. Ask questions. Learn faster.</p>
+            <p>Choose your knowledge source. Ask questions. Learn faster.</p>
 
             <div className="upload-card">
-              <h3>Select a Knowledge Base</h3>
+              <div className="pdf-icon">📄</div>
+
+              <h3>Knowledge Base and Document Selection</h3>
+
+              <p>Select where StudyMate should search for answers.</p>
+
+              <label
+                htmlFor="knowledge-base"
+                style={{
+                  display: 'block',
+                  textAlign: 'left',
+                  marginTop: '16px',
+                  marginBottom: '6px',
+                  fontWeight: '600'
+                }}
+              >
+                Knowledge Base
+              </label>
 
               <select
+                id="knowledge-base"
                 value={selectedKB}
-                onChange={handleKnowledgeBaseChange}
+                onChange={(event) => setSelectedKB(event.target.value)}
                 disabled={loadingKBs || uploading || asking}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  borderRadius: '8px',
+                  border: '1px solid #ccc',
+                  marginBottom: '12px'
+                }}
               >
                 <option value="">
-                  {loadingKBs
-                    ? 'Loading Knowledge Bases...'
-                    : 'Select Knowledge Base'}
+                  {loadingKBs ? 'Loading Knowledge Bases...' : 'Select a Knowledge Base'}
                 </option>
 
                 {knowledgeBases.map((kb) => (
                   <option
-                    key={kb.id || kb.knowledge_base_id}
-                    value={kb.id || kb.knowledge_base_id}
+                    key={getKnowledgeBaseId(kb)}
+                    value={getKnowledgeBaseId(kb)}
                   >
-                    {kb.name}
+                    {kb.name || kb.title || getKnowledgeBaseId(kb)}
+                  </option>
+                ))}
+              </select>
+
+              <label
+                htmlFor="document-selector"
+                style={{
+                  display: 'block',
+                  textAlign: 'left',
+                  marginBottom: '6px',
+                  fontWeight: '600'
+                }}
+              >
+                Document
+              </label>
+
+              <select
+                id="document-selector"
+                value={selectedDocumentId}
+                onChange={(event) =>
+                  setSelectedDocumentId(event.target.value)
+                }
+                disabled={!selectedKB || loadingDocuments || uploading || asking}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  borderRadius: '8px',
+                  border: '1px solid #ccc',
+                  marginBottom: '12px'
+                }}
+              >
+                <option value="">All Documents in this Knowledge Base</option>
+
+                {documents.map((document) => (
+                  <option
+                    key={getDocumentId(document)}
+                    value={getDocumentId(document)}
+                    disabled={document.status !== 'COMPLETED'}
+                  >
+                    {getDocumentName(document)} ({document.status || 'UNKNOWN'})
                   </option>
                 ))}
               </select>
 
               <p>
-                {currentKB
-                  ? `Selected: ${currentKB.name}`
-                  : 'Select a Knowledge Base to continue.'}
+                {loadingDocuments
+                  ? 'Loading documents...'
+                  : `${completedDocuments.length} completed document(s) in ${selectedKBName}.`}
               </p>
 
-              <div className="pdf-icon">📄</div>
+              <div style={{ marginTop: '18px' }}>
+                <h3>Upload a PDF</h3>
 
-              <h3>
-                {file ? file.name : 'Upload your PDF document'}
-              </h3>
+                <p>
+                  The PDF will be uploaded to the selected Knowledge Base.
+                </p>
 
-              <p>
-                {uploading
-                  ? 'Uploading and processing your PDF. Please wait...'
-                  : uploaded
-                    ? `${completedDocuments.length} completed document(s) available in this Knowledge Base.`
-                    : 'Select a PDF document to get started.'}
-              </p>
+                <input
+                  ref={fileInput}
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  hidden
+                  onChange={handleFile}
+                />
 
-              <input
-                ref={fileInput}
-                type="file"
-                accept=".pdf,application/pdf"
-                hidden
-                onChange={handleFile}
-              />
+                <button
+                  className="upload-button"
+                  onClick={() => fileInput.current?.click()}
+                  disabled={!selectedKB || uploading || asking}
+                >
+                  {uploading ? 'Processing PDF...' : 'Browse PDF'}
+                </button>
 
-              <button
-                className="upload-button"
-                onClick={() => fileInput.current?.click()}
-                disabled={!selectedKB || uploading || asking}
-              >
-                {uploading
-                  ? 'Processing PDF...'
-                  : 'Browse PDF'}
-              </button>
+                {file && (
+                  <p>{file.name}</p>
+                )}
 
-              <small>PDF documents only · Maximum 20 MB</small>
+                <small>PDF documents only · Maximum 20 MB</small>
+              </div>
 
               {uploading && (
                 <p className="processing-message">
-                  Extracting text, generating embeddings and indexing your document...
+                  Uploading, extracting text, generating embeddings and indexing your document...
                 </p>
               )}
 
-              {uploaded && (
+              {canAsk && (
                 <p className="success-message">
-                  ✓ Documents ready for questions
+                  ✓ Ready for questions
                 </p>
-              )}
-            </div>
-
-            <div className="document-list">
-              <h3>Documents in this Knowledge Base</h3>
-
-              {documents.length === 0 ? (
-                <p>No documents found in this Knowledge Base.</p>
-              ) : (
-                documents.map((doc) => (
-                  <div className="document-item" key={doc.id}>
-                    <span>📄 {doc.filename}</span>
-                    <small>Status: {doc.status}</small>
-                  </div>
-                ))
               )}
             </div>
           </div>
@@ -456,7 +550,9 @@ function App() {
                 <div className="message-avatar">✦</div>
                 <div className="message-content">
                   <strong>StudyMate</strong>
-                  <p>Processing your PDF. Preparing your Knowledge Base...</p>
+                  <p>
+                    Processing your PDF. Preparing your Knowledge Base...
+                  </p>
                 </div>
               </div>
             )}
@@ -466,7 +562,9 @@ function App() {
                 <div className="message-avatar">✦</div>
                 <div className="message-content">
                   <strong>StudyMate</strong>
-                  <p>Searching the selected Knowledge Base...</p>
+                  <p>
+                    Thinking... Searching the selected document and generating an answer.
+                  </p>
                 </div>
               </div>
             )}
@@ -483,27 +581,24 @@ function App() {
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
               placeholder={
-                uploaded
-                  ? 'Ask anything about your Knowledge Base...'
-                  : 'Select a Knowledge Base with completed documents...'
+                canAsk
+                  ? 'Ask a question about your selected document...'
+                  : 'Select a Knowledge Base and upload a PDF first...'
               }
-              disabled={!uploaded || uploading || asking}
+              disabled={!canAsk || uploading || asking}
             />
 
             <button
               type="submit"
-              disabled={
-                !uploaded ||
-                !question.trim() ||
-                uploading ||
-                asking
-              }
+              disabled={!canAsk || !question.trim() || uploading || asking}
             >
               {asking ? '...' : '➤'}
             </button>
           </form>
 
-          <p>StudyMate AI can make mistakes. Verify important information.</p>
+          <p>
+            StudyMate AI can make mistakes. Verify important information.
+          </p>
         </footer>
       </main>
     </div>
