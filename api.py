@@ -51,6 +51,7 @@ initialize_db()
 
 class QuestionRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
+    document_id: str | None = None
 
 
 class KnowledgeBaseRequest(BaseModel):
@@ -306,16 +307,54 @@ async def upload_pdf(file: UploadFile = File(...)):
 # Knowledge Base Question Answering API
 # --------------------------------------------------
 
+
 @app.post("/knowledge-bases/{knowledge_base_id}/ask")
 def ask_knowledge_base(
     knowledge_base_id: str,
     request: QuestionRequest,
 ):
     try:
+        knowledge_base = get_knowledge_base(knowledge_base_id)
+
+        if not knowledge_base:
+            raise HTTPException(
+                status_code=404,
+                detail="Knowledge Base not found.",
+            )
+
+        # If a document is selected, verify that it belongs
+        # to the requested Knowledge Base.
+        if request.document_id:
+            documents = list_documents(knowledge_base_id)
+
+            matching_document = next(
+                (
+                    doc for doc in documents
+                    if doc["id"] == request.document_id
+                ),
+                None,
+            )
+
+            if not matching_document:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Document not found in this Knowledge Base.",
+                )
+
+            if matching_document["status"] != "COMPLETED":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Selected document is not ready for questions.",
+                )
+
         return answer_question(
             request.question,
             knowledge_base_id=knowledge_base_id,
+            document_id=request.document_id,
         )
+
+    except HTTPException:
+        raise
 
     except ValueError as exc:
         raise HTTPException(
@@ -328,6 +367,7 @@ def ask_knowledge_base(
             status_code=500,
             detail=f"Question processing failed: {str(exc)}",
         ) from exc
+
 
 
 # --------------------------------------------------

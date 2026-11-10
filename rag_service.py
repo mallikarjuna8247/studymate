@@ -53,6 +53,7 @@ def answer_question(
     question: str,
     top_k: int = 5,
     knowledge_base_id=None,
+    document_id=None,
 ):
     """Retrieve relevant PDF chunks and generate an answer."""
 
@@ -89,6 +90,7 @@ def answer_question(
         question,
         top_k=top_k,
         knowledge_base_id=knowledge_base_id,
+        document_id=document_id,
     )
 
     documents = results.get("documents", [[]])[0]

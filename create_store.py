@@ -85,41 +85,57 @@ def add_chunks(
     print(f"Stored {len(chunks)} chunks successfully.")
 
 
+
 def search(
     query,
     top_k=5,
     knowledge_base_id=None,
+    document_id=None,
 ):
     collection = get_collection()
 
+    # Build metadata filters.
+    filters = []
+
     if knowledge_base_id:
-        # Count only chunks belonging to this Knowledge Base.
+        filters.append({
+            "knowledge_base_id": knowledge_base_id
+        })
+
+    if document_id:
+        filters.append({
+            "document_id": document_id
+        })
+
+    # Support KB-wide and individual-document retrieval.
+    where_filter = None
+
+    if len(filters) == 1:
+        where_filter = filters[0]
+    elif len(filters) > 1:
+        where_filter = {
+            "$and": filters
+        }
+
+    # Count only matching records.
+    if where_filter:
         matching_records = collection.get(
-            where={"knowledge_base_id": knowledge_base_id},
+            where=where_filter,
             include=[],
         )
 
         matching_count = len(matching_records["ids"])
 
-        if matching_count == 0:
-            return {
-                "documents": [[]],
-                "metadatas": [[]],
-            }
-
-        result_count = min(top_k, matching_count)
-
     else:
-        # Legacy search across the original collection.
-        collection_count = collection.count()
+        matching_count = collection.count()
 
-        if collection_count == 0:
-            return {
-                "documents": [[]],
-                "metadatas": [[]],
-            }
+    if matching_count == 0:
+        return {
+            "documents": [[]],
+            "metadatas": [[]],
+        }
 
-        result_count = min(top_k, collection_count)
+    result_count = min(top_k, matching_count)
 
     query_embedding = generate_embeddings([query])[0]
 
@@ -128,9 +144,7 @@ def search(
         "n_results": result_count,
     }
 
-    if knowledge_base_id:
-        query_arguments["where"] = {
-            "knowledge_base_id": knowledge_base_id,
-        }
+    if where_filter:
+        query_arguments["where"] = where_filter
 
     return collection.query(**query_arguments)
