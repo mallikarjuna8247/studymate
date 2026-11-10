@@ -592,7 +592,7 @@ function App() {
               >
                 <div
                   className="message-bubble assistant"
-                  style={{ maxWidth: 'min(75%, 760px)', padding: '14px 18px', borderRadius: '16px', background: '#e8f4ef' }}
+                  style={{ maxWidth: 'min(75%, 760px)', padding: '14px 18px', borderRadius: '16px', backgroundColor: '#DCFCE7',border: '1px solid #86EFAC' }}
                 >
                   <strong>StudyMate</strong>
                   <p>Processing your PDF. Preparing your Knowledge Base...</p>
@@ -607,7 +607,7 @@ function App() {
               >
                 <div
                   className="message-bubble assistant"
-                  style={{ maxWidth: 'min(75%, 760px)', padding: '14px 18px', borderRadius: '16px', background: '#e8f4ef' }}
+                  style={{ maxWidth: 'min(75%, 760px)', padding: '14px 18px', borderRadius: '16px', backgroundColor: '#DCFCE7',border: '1px solid #86EFAC' }}
                 >
                   <strong>StudyMate</strong>
                   <p>Thinking... Searching the selected document and generating an answer.</p>
