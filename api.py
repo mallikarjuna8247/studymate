@@ -2,6 +2,7 @@
 from pathlib import Path
 from uuid import uuid4
 import sqlite3
+from fastapi.openapi.utils import get_openapi
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -125,6 +126,31 @@ def get_knowledge_base_api(knowledge_base_id: str):
 
 
 # --------------------------------------------------
+# List Knowledge Base Documents API
+# --------------------------------------------------
+
+@app.get("/knowledge-bases/{knowledge_base_id}/documents")
+def get_knowledge_base_documents_api(
+    knowledge_base_id: str,
+):
+    knowledge_base = get_knowledge_base(knowledge_base_id)
+
+    if not knowledge_base:
+        raise HTTPException(
+            status_code=404,
+            detail="Knowledge Base not found.",
+        )
+
+    documents = list_documents(knowledge_base_id)
+
+    return {
+        "knowledge_base_id": knowledge_base_id,
+        "documents": documents,
+        "total_documents": len(documents),
+    }
+
+
+# --------------------------------------------------
 # Knowledge Base PDF Upload API
 # --------------------------------------------------
 
@@ -151,6 +177,7 @@ async def upload_knowledge_base_documents(
     failed_documents = []
 
     for file in files:
+        document_id = None
         original_name = (
             Path(file.filename).name if file.filename else ""
         )
@@ -198,7 +225,7 @@ async def upload_knowledge_base_documents(
             })
 
         except Exception as exc:
-            if "document_id" in locals():
+            if document_id is not None:
                 try:
                     update_document_status(document_id, "FAILED")
                 except Exception:
@@ -324,3 +351,43 @@ def ask_question(request: QuestionRequest):
             status_code=500,
             detail=f"Question processing failed: {str(exc)}",
         ) from exc
+
+
+
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+
+    schemas = openapi_schema.get("components", {}).get("schemas", {})
+
+    for component in schemas.values():
+        properties = component.get("properties", {})
+
+        for prop in properties.values():
+
+            # Fix single-file upload fields.
+            if prop.get("contentMediaType") == "application/octet-stream":
+                prop.pop("contentMediaType", None)
+                prop["format"] = "binary"
+
+            # Fix multiple-file upload fields.
+            items = prop.get("items", {})
+
+            if items.get("contentMediaType") == "application/octet-stream":
+                items.pop("contentMediaType", None)
+                items["format"] = "binary"
+
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi
+

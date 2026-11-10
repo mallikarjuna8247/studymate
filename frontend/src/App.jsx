@@ -5,85 +5,148 @@ import './App.css'
 const API_URL = 'http://127.0.0.1:8000'
 
 function App() {
+  const [knowledgeBases, setKnowledgeBases] = useState([])
+  const [selectedKB, setSelectedKB] = useState('')
+  const [documents, setDocuments] = useState([])
+
   const [file, setFile] = useState(null)
-  const [uploaded, setUploaded] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [asking, setAsking] = useState(false)
+  const [loadingKBs, setLoadingKBs] = useState(true)
+
   const [question, setQuestion] = useState('')
   const [error, setError] = useState('')
-  const [pdfUrl, setPdfUrl] = useState('')
-  const [documentInfo, setDocumentInfo] = useState(null)
 
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
-      text: 'Hello! I am StudyMate. Upload a PDF and I will help you understand its contents, find important information, and answer your questions with page references.'
+      text: 'Hello! I am StudyMate. Select a Knowledge Base, choose your documents, and ask questions about their contents.'
     }
   ])
 
   const fileInput = useRef(null)
-  const messagesEndRef = useRef(null)
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, asking])
+  const currentKB = knowledgeBases.find(
+    (kb) => (kb.id || kb.knowledge_base_id) === selectedKB
+  )
 
+  const completedDocuments = documents.filter(
+    (doc) => doc.status === 'COMPLETED'
+  )
+
+  const uploaded = completedDocuments.length > 0
+
+  // Load available Knowledge Bases when the application starts.
   useEffect(() => {
-    return () => {
-      if (pdfUrl) URL.revokeObjectURL(pdfUrl)
+    const loadKnowledgeBases = async () => {
+      try {
+        setLoadingKBs(true)
+
+        const response = await fetch(`${API_URL}/knowledge-bases`)
+        const data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(data.detail || 'Unable to load Knowledge Bases.')
+        }
+
+        const list = Array.isArray(data)
+          ? data
+          : data.knowledge_bases || data.items || []
+
+        setKnowledgeBases(list)
+
+        if (list.length > 0) {
+          const discoveryKB = list.find((kb) =>
+            (kb.name || '').toLowerCase().includes('discovery agent')
+          )
+
+          setSelectedKB(
+            discoveryKB?.id ||
+            discoveryKB?.knowledge_base_id ||
+            list[0].id ||
+            list[0].knowledge_base_id
+          )
+        }
+      } catch (err) {
+        setError(err.message || 'Unable to connect to the backend.')
+      } finally {
+        setLoadingKBs(false)
+      }
     }
-  }, [pdfUrl])
 
-  const handleFile = (event) => {
-    const selectedFile = event.target.files?.[0]
-    if (!selectedFile) return
+    loadKnowledgeBases()
+  }, [])
 
-    setError('')
+  // Load documents whenever the selected Knowledge Base changes.
+  useEffect(() => {
+    if (!selectedKB) {
+      setDocuments([])
+      return
+    }
 
-    if (
-      selectedFile.type !== 'application/pdf' &&
-      !selectedFile.name.toLowerCase().endsWith('.pdf')
-    ) {
-      setError('Please select a valid PDF document.')
-      event.target.value = ''
+    const loadDocuments = async () => {
+      try {
+        setError('')
+
+        const response = await fetch(
+          `${API_URL}/knowledge-bases/${selectedKB}/documents`
+        )
+
+        const data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(data.detail || 'Unable to load documents.')
+        }
+
+        setDocuments(data.documents || [])
+      } catch (err) {
+        setError(err.message || 'Unable to load documents.')
+        setDocuments([])
+      }
+    }
+
+    loadDocuments()
+  }, [selectedKB])
+
+  // Upload the selected PDF into the currently selected Knowledge Base.
+  const uploadPDF = async (selectedFile) => {
+    if (!selectedKB) {
+      setError('Please select a Knowledge Base first.')
+      return
+    }
+
+    if (!selectedFile) {
+      setError('Please select a PDF first.')
+      return
+    }
+
+    if (!selectedFile.name.toLowerCase().endsWith('.pdf')) {
+      setError('Please select a PDF file.')
       return
     }
 
     if (selectedFile.size > 20 * 1024 * 1024) {
-      setError('PDF size must not exceed 20 MB.')
-      event.target.value = ''
-      return
-    }
-
-    setFile(selectedFile)
-    setUploaded(false)
-    setDocumentInfo(null)
-
-    setMessages([
-      {
-        role: 'assistant',
-        text: 'Your PDF is selected. Upload it to start asking questions.'
-      }
-    ])
-  }
-
-  const uploadPDF = async () => {
-    if (!file) {
-      setError('Please select a PDF first.')
+      setError('The PDF must be smaller than 20 MB.')
       return
     }
 
     setUploading(true)
     setError('')
+    setFile(selectedFile)
 
     try {
       const formData = new FormData()
-      formData.append('file', file)
 
-      const response = await fetch(`${API_URL}/upload`, {
-        method: 'POST',
-        body: formData
-      })
+      // The FastAPI endpoint expects a list named "files".
+      formData.append('files', selectedFile)
+
+      const response = await fetch(
+        `${API_URL}/knowledge-bases/${selectedKB}/documents`,
+        {
+          method: 'POST',
+          body: formData
+        }
+      )
 
       const data = await response.json()
 
@@ -91,244 +154,235 @@ function App() {
         throw new Error(data.detail || 'PDF upload failed.')
       }
 
-      setUploaded(true)
-      setDocumentInfo(data)
+      // Refresh the document list from the database.
+      const documentsResponse = await fetch(
+        `${API_URL}/knowledge-bases/${selectedKB}/documents`
+      )
 
-      const newPdfUrl = URL.createObjectURL(file)
-      setPdfUrl(previousUrl => {
-        if (previousUrl) URL.revokeObjectURL(previousUrl)
-        return newPdfUrl
-      })
+      const documentsData = await documentsResponse.json()
 
-      setMessages([
+      if (!documentsResponse.ok) {
+        throw new Error(
+          documentsData.detail || 'Unable to refresh the document list.'
+        )
+      }
+
+      setDocuments(documentsData.documents || [])
+
+      setMessages((prev) => [
+        ...prev,
         {
           role: 'assistant',
-          text: `Successfully processed ${data.original_filename}. ${data.pages_processed} pages and ${data.chunks_created} chunks indexed. You can now ask questions.`
+          text: `Upload completed for ${selectedFile.name}. Your document status is now available in the Knowledge Base document list.`
         }
       ])
     } catch (err) {
-      setError(err.message || 'Unable to connect to the backend.')
+      setError(err.message || 'Unable to upload the PDF.')
     } finally {
       setUploading(false)
     }
   }
 
+  const handleFile = (event) => {
+    const selectedFile = event.target.files?.[0]
+
+    if (!selectedFile) return
+
+    uploadPDF(selectedFile)
+
+    // Allow selecting the same PDF again if needed.
+    event.target.value = ''
+  }
+
+  const handleKnowledgeBaseChange = (event) => {
+    const newKB = event.target.value
+
+    setSelectedKB(newKB)
+    setFile(null)
+    setQuestion('')
+    setError('')
+
+    setMessages([
+      {
+        role: 'assistant',
+        text: 'Knowledge Base changed. Ask a question about the documents available in this Knowledge Base.'
+      }
+    ])
+  }
+
+  // Ask a question using only the selected Knowledge Base.
   const sendMessage = async (event) => {
     event.preventDefault()
 
     const userQuestion = question.trim()
 
-    if (!userQuestion || !uploaded || asking) return
+    if (!userQuestion || asking) return
 
-    setQuestion('')
-    setError('')
+    if (!selectedKB) {
+      setError('Please select a Knowledge Base.')
+      return
+    }
 
-    setMessages(previous => [
-      ...previous,
+    if (!uploaded) {
+      setError('Please upload a PDF or select a Knowledge Base containing a completed document.')
+      return
+    }
+
+    setMessages((prev) => [
+      ...prev,
       { role: 'user', text: userQuestion }
     ])
 
+    setQuestion('')
     setAsking(true)
+    setError('')
 
     try {
-      const response = await fetch(`${API_URL}/ask`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ question: userQuestion })
-      })
+      const response = await fetch(
+        `${API_URL}/knowledge-bases/${selectedKB}/ask`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            question: userQuestion
+          })
+        }
+      )
 
       const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(data.detail || 'Unable to answer your question.')
+        throw new Error(data.detail || 'Unable to generate an answer.')
       }
 
-      setMessages(previous => [
-        ...previous,
+      const sourceText = Array.isArray(data.sources) && data.sources.length
+        ? '\n\nSources:\n' + data.sources
+            .map((source) => {
+              const documentName =
+                source.document || source.filename || 'Unknown document'
+
+              return `${documentName}, page ${source.page ?? 'N/A'}`
+            })
+            .join('\n')
+        : '\n\nSources: No source details were returned.'
+
+      setMessages((prev) => [
+        ...prev,
         {
           role: 'assistant',
-          text: data.answer,
-          sources: data.sources || []
+          text: (data.answer || 'No answer was returned.') + sourceText
         }
       ])
     } catch (err) {
-      setMessages(previous => [
-        ...previous,
-        {
-          role: 'assistant',
-          text: `I couldn't process your question. ${err.message || 'Please check the backend connection.'}`
-        }
-      ])
+      setError(err.message || 'Unable to connect to the backend.')
     } finally {
       setAsking(false)
     }
   }
 
-  const newChat = () => {
-    setQuestion('')
-    setError('')
-    setMessages([
-      {
-        role: 'assistant',
-        text: uploaded
-          ? 'Your document is ready. What would you like to learn from it?'
-          : 'Hello! Upload a PDF and I will help you understand its contents.'
-      }
-    ])
-  }
-
-  const formatFileSize = (size) => {
-    return size < 1024 * 1024
-      ? `${(size / 1024).toFixed(1)} KB`
-      : `${(size / (1024 * 1024)).toFixed(2)} MB`
-  }
-
   return (
-    <div className="app-shell">
+    <div className="app">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-logo">✦</div>
-          <div>
-            <h2>StudyMate</h2>
-            <span>AI Learning Workspace</span>
-          </div>
+          <span className="brand-icon">✦</span>
+          <h2>StudyMate</h2>
         </div>
 
-        <button className="new-chat-button" onClick={newChat}>
-          <span>＋</span> New Chat
+        <button
+          className="new-chat"
+          onClick={() => {
+            setMessages([
+              {
+                role: 'assistant',
+                text: 'Hello! Ask me a question about the selected Knowledge Base.'
+              }
+            ])
+            setQuestion('')
+            setError('')
+          }}
+        >
+          + New Chat
         </button>
 
         <div className="sidebar-section">
-          <p className="sidebar-label">WORKSPACE</p>
-
-          <div className="nav-item active">
-            <span>▤</span> Chat with PDF
-          </div>
-
-          <div className="nav-item">
-            <span>▧</span> My Documents
-          </div>
-
-          <div className="nav-item">
-            <span>◷</span> Recent Chats
-          </div>
+          <p>WORKSPACE</p>
+          <div className="nav-item active">💬 Chat with PDF</div>
+          <div className="nav-item">📚 My Documents</div>
+          <div className="nav-item">🕘 Recent Chats</div>
         </div>
 
-        <div className="sidebar-spacer" />
-
-        <div className="sidebar-tip">
-          <div className="tip-icon">✧</div>
-          <strong>Study smarter</strong>
-          <p>Ask questions, explore ideas, and learn from your documents.</p>
-        </div>
-
-        <div className="profile">
-          <div className="profile-avatar">S</div>
-          <div>
-            <strong>Student</strong>
-            <span>Personal Workspace</span>
+        <div className="sidebar-bottom">
+          <div className="profile">
+            <div className="avatar">S</div>
+            <div>
+              <strong>Student</strong>
+              <small>Personal Workspace</small>
+            </div>
           </div>
-          <span className="profile-menu">•••</span>
         </div>
       </aside>
 
-      <main className="main-panel">
+      <main className="main">
         <header className="topbar">
           <div>
-            <div className="breadcrumb">Workspace <span>/</span> Chat with PDF</div>
-            <h3>Document Assistant</h3>
+            <span className="breadcrumb">Workspace / </span>
+            <strong>Chat with PDF</strong>
           </div>
-
-          <div className="topbar-status">
-            <span className="online-dot" />
-            AI Assistant
-          </div>
+          <span className="status">AI Assistant</span>
         </header>
 
         <section className="chat-area">
-          {!uploaded && (
-            <div className="welcome-section">
-              <div className="welcome-symbol">✦</div>
-              <span className="eyebrow">YOUR AI LEARNING COMPANION</span>
-              <h1>Learn anything from<br />your <span>PDF documents.</span></h1>
-              <p className="welcome-description">
-                Upload your study material, ask questions, and get
-                answers grounded in your documents.
+          <div className="welcome">
+            <div className="welcome-icon">✦</div>
+            <h1>Your Personal Study Assistant</h1>
+            <p>Upload your PDF. Ask questions. Learn faster.</p>
+
+            <div className="upload-card">
+              <h3>Select a Knowledge Base</h3>
+
+              <select
+                value={selectedKB}
+                onChange={handleKnowledgeBaseChange}
+                disabled={loadingKBs || uploading || asking}
+              >
+                <option value="">
+                  {loadingKBs
+                    ? 'Loading Knowledge Bases...'
+                    : 'Select Knowledge Base'}
+                </option>
+
+                {knowledgeBases.map((kb) => (
+                  <option
+                    key={kb.id || kb.knowledge_base_id}
+                    value={kb.id || kb.knowledge_base_id}
+                  >
+                    {kb.name}
+                  </option>
+                ))}
+              </select>
+
+              <p>
+                {currentKB
+                  ? `Selected: ${currentKB.name}`
+                  : 'Select a Knowledge Base to continue.'}
               </p>
 
-              <div className="upload-card">
-                <div className="upload-icon">PDF</div>
+              <div className="pdf-icon">📄</div>
 
-                <h3>{file ? file.name : 'Upload your PDF document'}</h3>
+              <h3>
+                {file ? file.name : 'Upload your PDF document'}
+              </h3>
 
-                <p>
-                  {file
-                    ? `${formatFileSize(file.size)} · Ready to upload`
-                    : 'Choose a document from your computer to get started.'}
-                </p>
+              <p>
+                {uploading
+                  ? 'Uploading and processing your PDF. Please wait...'
+                  : uploaded
+                    ? `${completedDocuments.length} completed document(s) available in this Knowledge Base.`
+                    : 'Select a PDF document to get started.'}
+              </p>
 
-                <input
-                  ref={fileInput}
-                  type="file"
-                  accept=".pdf,application/pdf"
-                  hidden
-                  onChange={handleFile}
-                />
-
-                <div className="upload-actions">
-                  <button
-                    className="secondary-button"
-                    onClick={() => fileInput.current?.click()}
-                    disabled={uploading}
-                  >
-                    {file ? 'Change PDF' : 'Browse files'}
-                  </button>
-
-                  {file && (
-                    <button
-                      className="primary-button"
-                      onClick={uploadPDF}
-                      disabled={uploading}
-                    >
-                      {uploading ? 'Processing...' : 'Upload PDF'}
-                    </button>
-                  )}
-                </div>
-
-                {uploading && <div className="progress-track"><div /></div>}
-
-                <div className="upload-footer">
-                  <span>✓ PDF documents only</span>
-                  <span>Maximum 20 MB</span>
-                </div>
-              </div>
-
-              <div className="feature-row">
-                <div><span>✦</span> AI-powered answers</div>
-                <div><span>▤</span> Page references</div>
-                <div><span>⌕</span> Smart document search</div>
-              </div>
-            </div>
-          )}
-
-          {uploaded && (
-            <div className="document-banner">
-              <div className="document-icon">PDF</div>
-              <div className="document-details">
-                <strong>{documentInfo?.original_filename || file?.name}</strong>
-                <span>
-                  {documentInfo?.pages_processed} pages · {documentInfo?.chunks_created} chunks indexed
-                </span>
-              </div>
-              <span className="indexed-badge">✓ Indexed</span>
-              <button
-                className="change-document"
-                onClick={() => fileInput.current?.click()}
-              >
-                Change
-              </button>
               <input
                 ref={fileInput}
                 type="file"
@@ -336,107 +390,120 @@ function App() {
                 hidden
                 onChange={handleFile}
               />
-            </div>
-          )}
 
-          <div className="messages-container">
+              <button
+                className="upload-button"
+                onClick={() => fileInput.current?.click()}
+                disabled={!selectedKB || uploading || asking}
+              >
+                {uploading
+                  ? 'Processing PDF...'
+                  : 'Browse PDF'}
+              </button>
+
+              <small>PDF documents only · Maximum 20 MB</small>
+
+              {uploading && (
+                <p className="processing-message">
+                  Extracting text, generating embeddings and indexing your document...
+                </p>
+              )}
+
+              {uploaded && (
+                <p className="success-message">
+                  ✓ Documents ready for questions
+                </p>
+              )}
+            </div>
+
+            <div className="document-list">
+              <h3>Documents in this Knowledge Base</h3>
+
+              {documents.length === 0 ? (
+                <p>No documents found in this Knowledge Base.</p>
+              ) : (
+                documents.map((doc) => (
+                  <div className="document-item" key={doc.id}>
+                    <span>📄 {doc.filename}</span>
+                    <small>Status: {doc.status}</small>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="messages">
             {messages.map((message, index) => (
-              <div key={index} className={`message-row ${message.role}`}>
-                <div className={`message-avatar ${message.role}`}>
+              <div
+                key={index}
+                className={`message ${message.role}`}
+              >
+                <div className="message-avatar">
                   {message.role === 'assistant' ? '✦' : 'S'}
                 </div>
 
-                <div className="message-body">
-                  <div className="message-heading">
-                    <strong>
-                      {message.role === 'assistant' ? 'StudyMate' : 'You'}
-                    </strong>
-                    {message.role === 'assistant' && (
-                      <span className="ai-label">AI ASSISTANT</span>
-                    )}
-                  </div>
-
-                  <div className="message-text">{message.text}</div>
-
-                  {message.sources?.length > 0 && (
-                    <div className="sources-panel">
-                      <span className="sources-heading">SOURCES</span>
-                      <div className="source-list">
-                        {pdfUrl && source.document === documentInfo?.document ? (
-                          <a
-                            className="source-link"
-                            key={`${source.document}-${source.page}-${sourceIndex}`}
-                            href={`${pdfUrl}#page=${source.page}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            title="Open cited PDF page"
-                          >
-                            <span>▤</span>
-                            <span>{source.document} · Page {source.page}</span>
-                            <span className="source-arrow">↗</span>
-                          </a>
-                        ) : (
-                          <div
-                            className="source-link"
-                            key={`${source.document}-${source.page}-${sourceIndex}`}
-                          >
-                            <span>▤</span>
-                            <span>{source.document} · Page {source.page}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
+                <div className="message-content">
+                  <strong>
+                    {message.role === 'assistant' ? 'StudyMate' : 'You'}
+                  </strong>
+                  <p className="message-text">{message.text}</p>
                 </div>
               </div>
             ))}
 
-            {asking && (
-              <div className="message-row assistant">
-                <div className="message-avatar assistant">✦</div>
-                <div className="message-body">
-                  <div className="message-heading">
-                    <strong>StudyMate</strong>
-                  </div>
-                  <div className="typing-indicator">
-                    <span /><span /><span />
-                    <small>Searching your document...</small>
-                  </div>
+            {uploading && (
+              <div className="message assistant">
+                <div className="message-avatar">✦</div>
+                <div className="message-content">
+                  <strong>StudyMate</strong>
+                  <p>Processing your PDF. Preparing your Knowledge Base...</p>
                 </div>
               </div>
             )}
 
-            <div ref={messagesEndRef} />
+            {asking && (
+              <div className="message assistant">
+                <div className="message-avatar">✦</div>
+                <div className="message-content">
+                  <strong>StudyMate</strong>
+                  <p>Searching the selected Knowledge Base...</p>
+                </div>
+              </div>
+            )}
           </div>
         </section>
 
         <footer className="chat-footer">
-          {error && <div className="error-message">{error}</div>}
+          {error && (
+            <p className="error-message">{error}</p>
+          )}
 
           <form className="chat-input" onSubmit={sendMessage}>
             <input
               value={question}
-              onChange={event => setQuestion(event.target.value)}
+              onChange={(event) => setQuestion(event.target.value)}
               placeholder={
                 uploaded
-                  ? 'Ask anything about your PDF...'
-                  : 'Upload a PDF to start asking questions...'
+                  ? 'Ask anything about your Knowledge Base...'
+                  : 'Select a Knowledge Base with completed documents...'
               }
-              disabled={!uploaded || asking}
+              disabled={!uploaded || uploading || asking}
             />
 
             <button
               type="submit"
-              disabled={!uploaded || !question.trim() || asking}
-              aria-label="Send question"
+              disabled={
+                !uploaded ||
+                !question.trim() ||
+                uploading ||
+                asking
+              }
             >
-              ➤
+              {asking ? '...' : '➤'}
             </button>
           </form>
 
-          <p className="footer-note">
-            StudyMate AI can make mistakes. Verify important information in your source document.
-          </p>
+          <p>StudyMate AI can make mistakes. Verify important information.</p>
         </footer>
       </main>
     </div>
