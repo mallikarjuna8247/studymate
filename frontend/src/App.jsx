@@ -540,15 +540,18 @@ function App() {
                     className={`message-bubble ${message.role}`}
                     style={{
                       maxWidth: 'min(75%, 760px)',
-                      padding: '14px 18px',
-                      borderRadius: '16px',
-                      backgroundColor: isUser ? '#DBEAFE' : '#DCFCE7',
+                      padding: '16px 20px',
+                      borderRadius: '18px',
+                      background: isUser
+                        ? 'linear-gradient(135deg, #EDE9FE, #DDD6FE)'
+                        : 'linear-gradient(135deg, #D1FAE5, #A7F3D0)',
                       border: isUser
-                        ? '1px solid #93C5FD'
-                        : '1px solid #86EFAC',
-                      color: '#202124',
+                        ? '1px solid #C4B5FD'
+                        : '1px solid #6EE7B7',
+                      color: isUser ? '#312E81' : '#064E3B',
                       overflowWrap: 'anywhere',
-                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.06)'
+                      boxShadow: '0 4px 12px rgba(30, 41, 59, 0.08)',
+                      lineHeight: 1.6
                     }}
                   >
                     <strong style={{ display: 'block', marginBottom: '7px' }}>
@@ -592,7 +595,21 @@ function App() {
               >
                 <div
                   className="message-bubble assistant"
-                  style={{ maxWidth: 'min(75%, 760px)', padding: '14px 18px', borderRadius: '16px', backgroundColor: '#DCFCE7',border: '1px solid #86EFAC' }}
+                  style={{
+                    maxWidth: 'min(75%, 760px)',
+                    padding: '16px 20px',
+                    borderRadius: '18px',
+                    background: isUser
+                      ? 'linear-gradient(135deg, #EDE9FE, #DDD6FE)'
+                      : 'linear-gradient(135deg, #D1FAE5, #A7F3D0)',
+                    border: isUser
+                      ? '1px solid #C4B5FD'
+                      : '1px solid #6EE7B7',
+                    color: isUser ? '#312E81' : '#064E3B',
+                    overflowWrap: 'anywhere',
+                    boxShadow: '0 4px 12px rgba(30, 41, 59, 0.08)',
+                    lineHeight: 1.6
+                  }}
                 >
                   <strong>StudyMate</strong>
                   <p>Processing your PDF. Preparing your Knowledge Base...</p>
@@ -607,7 +624,21 @@ function App() {
               >
                 <div
                   className="message-bubble assistant"
-                  style={{ maxWidth: 'min(75%, 760px)', padding: '14px 18px', borderRadius: '16px', backgroundColor: '#DCFCE7',border: '1px solid #86EFAC' }}
+                  style={{
+                    maxWidth: 'min(75%, 760px)',
+                    padding: '16px 20px',
+                    borderRadius: '18px',
+                    background: isUser
+                      ? 'linear-gradient(135deg, #EDE9FE, #DDD6FE)'
+                      : 'linear-gradient(135deg, #D1FAE5, #A7F3D0)',
+                    border: isUser
+                      ? '1px solid #C4B5FD'
+                      : '1px solid #6EE7B7',
+                    color: isUser ? '#312E81' : '#064E3B',
+                    overflowWrap: 'anywhere',
+                    boxShadow: '0 4px 12px rgba(30, 41, 59, 0.08)',
+                    lineHeight: 1.6
+                  }}
                 >
                   <strong>StudyMate</strong>
                   <p>Thinking... Searching the selected document and generating an answer.</p>
