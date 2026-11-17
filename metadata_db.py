@@ -1,11 +1,18 @@
 
+import os
 import sqlite3
 from pathlib import Path
 from uuid import uuid4
 from datetime import datetime, timezone
 
 
-DB_PATH = Path(__file__).resolve().parent / "studymate_metadata.db"
+DEFAULT_DB_PATH = Path(__file__).resolve().parent / "studymate_metadata.db"
+
+DB_PATH = Path(
+    os.getenv("STUDYMATE_DB_PATH", str(DEFAULT_DB_PATH))
+).expanduser()
+
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
 def get_connection():

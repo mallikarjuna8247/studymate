@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from pdf_loader import load_pdf
@@ -8,8 +9,13 @@ from llm_client import complete
 from metadata_db import get_knowledge_base
 
 
-DATA_DIR = Path(__file__).resolve().parent / "data"
-DATA_DIR.mkdir(exist_ok=True)
+DEFAULT_DATA_DIR = Path(__file__).resolve().parent / "data"
+
+DATA_DIR = Path(
+    os.getenv("STUDYMATE_DATA_DIR", str(DEFAULT_DATA_DIR))
+).expanduser()
+
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def process_pdf(

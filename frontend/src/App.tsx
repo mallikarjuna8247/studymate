@@ -271,12 +271,9 @@ function App() {
 
         if (cancelled) return
 
-        const successfulDocuments = results
-          .filter(
-            (result): result is PromiseFulfilledResult<Document[]> =>
-              result.status === 'fulfilled'
+        const successfulDocuments = results.flatMap((result) =>
+            result.status === 'fulfilled' ? result.value : []
           )
-          .flatMap((result) => result.value)
 
         const failedKnowledgeBases = results
           .map((result, index) =>

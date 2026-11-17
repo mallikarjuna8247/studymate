@@ -1,4 +1,5 @@
 
+import os
 from pathlib import Path
 from uuid import uuid4
 import sqlite3
@@ -38,8 +39,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DATA_DIR = Path(__file__).resolve().parent / "data"
-DATA_DIR.mkdir(exist_ok=True)
+DEFAULT_DATA_DIR = Path(__file__).resolve().parent / "data"
+
+DATA_DIR = Path(
+    os.getenv("STUDYMATE_DATA_DIR", str(DEFAULT_DATA_DIR))
+).expanduser()
+
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # Initialize metadata tables when the API starts.
 initialize_db()
