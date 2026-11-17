@@ -1,13 +1,90 @@
-
-import json
+﻿import json
+import os
 import time
 import urllib.request
+from pathlib import Path
 
-OLLAMA_URL = "http://localhost:11434"
+from dotenv import load_dotenv
 
-def complete(messages, model="qwen3:8b", temperature=0.2):
-    start = time.time()
+# Load the project's .env file explicitly.
+PROJECT_DIR = Path(__file__).resolve().parent
+load_dotenv(dotenv_path=PROJECT_DIR / ".env")
 
+LLM_PROVIDER = os.getenv("STUDYMATE_LLM_PROVIDER", "ollama").strip().lower()
+
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
+
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+
+_gemini_client = None
+
+
+def _get_gemini_client():
+    global _gemini_client
+
+    if _gemini_client is None:
+        api_key = os.getenv("GEMINI_API_KEY")
+
+        if not api_key:
+            raise RuntimeError(
+                "GEMINI_API_KEY is missing. Configure it in the backend .env file."
+            )
+
+        from google import genai
+
+        _gemini_client = genai.Client(api_key=api_key)
+
+    return _gemini_client
+
+
+def _complete_with_gemini(messages, model, temperature):
+    from google.genai import types
+
+    client = _get_gemini_client()
+
+    system_messages = []
+    conversation = []
+
+    for message in messages:
+        role = message.get("role", "user")
+        content = str(message.get("content", ""))
+
+        if role == "system":
+            system_messages.append(content)
+        elif role == "assistant":
+            conversation.append(f"Assistant:\n{content}")
+        else:
+            conversation.append(f"User:\n{content}")
+
+    system_instruction = "\n\n".join(system_messages)
+
+    response = client.models.generate_content(
+        model=model,
+        contents="\n\n".join(conversation),
+        config=types.GenerateContentConfig(
+            system_instruction=system_instruction or None,
+            temperature=temperature,
+        ),
+    )
+
+    usage = getattr(response, "usage_metadata", None)
+
+    prompt_tokens = getattr(usage, "prompt_token_count", 0) or 0
+    completion_tokens = getattr(usage, "candidates_token_count", 0) or 0
+    total_tokens = getattr(usage, "total_token_count", 0) or (
+        prompt_tokens + completion_tokens
+    )
+
+    return {
+        "text": response.text or "",
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+    }
+
+
+def _complete_with_ollama(messages, model, temperature):
     payload = {
         "model": model,
         "messages": messages,
@@ -30,13 +107,40 @@ def complete(messages, model="qwen3:8b", temperature=0.2):
     with urllib.request.urlopen(request, timeout=300) as response:
         result = json.loads(response.read().decode("utf-8"))
 
+    prompt_tokens = result.get("prompt_eval_count", 0)
+    completion_tokens = result.get("eval_count", 0)
+
     return {
         "text": result["message"]["content"],
-        "prompt_tokens": result.get("prompt_eval_count", 0),
-        "completion_tokens": result.get("eval_count", 0),
-        "total_tokens": (
-            result.get("prompt_eval_count", 0)
-            + result.get("eval_count", 0)
-        ),
-        "latency_seconds": round(time.time() - start, 2),
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": prompt_tokens + completion_tokens,
     }
+
+
+def complete(messages, model=None, temperature=0.2):
+    start = time.time()
+
+    if LLM_PROVIDER == "gemini":
+        result = _complete_with_gemini(
+            messages,
+            model or GEMINI_MODEL,
+            temperature,
+        )
+
+    elif LLM_PROVIDER == "ollama":
+        result = _complete_with_ollama(
+            messages,
+            model or OLLAMA_MODEL,
+            temperature,
+        )
+
+    else:
+        raise ValueError(
+            f"Unsupported STUDYMATE_LLM_PROVIDER: {LLM_PROVIDER}. "
+            "Supported providers: gemini, ollama."
+        )
+
+    result["latency_seconds"] = round(time.time() - start, 2)
+
+    return result

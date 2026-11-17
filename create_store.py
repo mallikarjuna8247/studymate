@@ -1,4 +1,5 @@
 import json
+import os
 import urllib.request
 
 import chromadb
@@ -6,8 +7,12 @@ import chromadb
 OLLAMA_URL = "http://localhost:11434"
 EMBEDDING_MODEL = "nomic-embed-text"
 
+CHROMA_DIR = os.path.expanduser(
+    os.getenv("STUDYMATE_CHROMA_DIR", "./chroma_db")
+)
+
 chroma_client = chromadb.PersistentClient(
-    path="./chroma_db"
+    path=CHROMA_DIR
 )
 
 
