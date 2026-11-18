@@ -38,6 +38,10 @@ function getDocumentName(item) {
 function App() {
   const [knowledgeBases, setKnowledgeBases] = useState([])
   const [selectedKB, setSelectedKB] = useState('')
+  // Create Knowledge Base state
+  const [newKBName, setNewKBName] = useState('')
+  const [newKBDescription, setNewKBDescription] = useState('')
+  const [creatingKB, setCreatingKB] = useState(false)
 
   const [documents, setDocuments] = useState([])
   const [selectedDocumentId, setSelectedDocumentId] = useState('')
@@ -133,6 +137,87 @@ function App() {
       cancelled = true
     }
   }, [])
+
+
+  // Create a new Knowledge Base
+  const handleCreateKnowledgeBase = async (event) => {
+    event.preventDefault()
+
+    const name = newKBName.trim()
+    const description = newKBDescription.trim()
+
+    if (!name) {
+      setError('Please enter a Knowledge Base name.')
+      return
+    }
+
+    setCreatingKB(true)
+    setError('')
+
+    try {
+      const response = await fetch(`${API_URL}/knowledge-bases`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name,
+          description
+        })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(
+          data.detail || 'Unable to create Knowledge Base.'
+        )
+      }
+
+      const createdKB = data.knowledge_base
+
+      if (!createdKB) {
+        throw new Error('The backend did not return the created Knowledge Base.')
+      }
+
+      const createdKBId = getKnowledgeBaseId(createdKB)
+
+      if (!createdKBId || createdKBId === 'undefined') {
+        throw new Error('The created Knowledge Base has no valid ID.')
+      }
+
+      setKnowledgeBases((previous) => [
+        ...previous.filter(
+          (item) => getKnowledgeBaseId(item) !== createdKBId
+        ),
+        createdKB
+      ])
+
+      // Select the newly created Knowledge Base
+      setSelectedKB(createdKBId)
+
+      setNewKBName('')
+      setNewKBDescription('')
+
+      setMessages((previous) => [
+        ...previous,
+        {
+          role: 'assistant',
+          text: `Knowledge Base "${name}" created successfully. You can now upload PDFs.`
+        }
+      ])
+
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Unable to create Knowledge Base.'
+      )
+    } finally {
+      setCreatingKB(false)
+    }
+  }
+
 
   // Load documents belonging to the selected Knowledge Base.
   const loadDocuments = async (knowledgeBaseId) => {
@@ -473,6 +558,91 @@ function App() {
               <h3>
                 Knowledge Base and Document Selection
               </h3>
+
+
+              {/* CREATE KNOWLEDGE BASE */}
+              <form
+                onSubmit={handleCreateKnowledgeBase}
+                style={{
+                  marginTop: '20px',
+                  marginBottom: '22px',
+                  padding: '16px',
+                  border: '1px solid #ddd',
+                  borderRadius: '10px',
+                  textAlign: 'left'
+                }}
+              >
+                <h3>Create a New Knowledge Base</h3>
+
+                <label
+                  htmlFor="new-kb-name"
+                  style={{ display: 'block', marginBottom: '6px', fontWeight: '600' }}
+                >
+                  Knowledge Base Name
+                </label>
+
+                <input
+                  id="new-kb-name"
+                  type="text"
+                  value={newKBName}
+                  onChange={(event) => setNewKBName(event.target.value)}
+                  placeholder="Example: Crenma Discovery Agent"
+                  maxLength={100}
+                  required
+                  disabled={creatingKB}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    borderRadius: '8px',
+                    border: '1px solid #ccc',
+                    marginBottom: '12px',
+                    boxSizing: 'border-box'
+                  }}
+                />
+
+                <label
+                  htmlFor="new-kb-description"
+                  style={{ display: 'block', marginBottom: '6px', fontWeight: '600' }}
+                >
+                  Description (Optional)
+                </label>
+
+                <textarea
+                  id="new-kb-description"
+                  value={newKBDescription}
+                  onChange={(event) => setNewKBDescription(event.target.value)}
+                  placeholder="Describe the purpose of this Knowledge Base..."
+                  maxLength={500}
+                  rows={3}
+                  disabled={creatingKB}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    borderRadius: '8px',
+                    border: '1px solid #ccc',
+                    marginBottom: '12px',
+                    boxSizing: 'border-box',
+                    resize: 'vertical'
+                  }}
+                />
+
+                <button
+                  type="submit"
+                  disabled={creatingKB || !newKBName.trim()}
+                  style={{
+                    padding: '10px 18px',
+                    border: 'none',
+                    borderRadius: '8px',
+                    background: '#4f46e5',
+                    color: 'white',
+                    cursor: 'pointer',
+                    fontWeight: '600'
+                  }}
+                >
+                  {creatingKB ? 'Creating...' : '+ Create Knowledge Base'}
+                </button>
+              </form>
+
 
               <p>
                 Select where StudyMate should search for answers.

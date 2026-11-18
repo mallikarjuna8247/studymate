@@ -1,8 +1,10 @@
-﻿import json
+﻿
+import json
 import os
 import time
 import urllib.request
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 
 from dotenv import load_dotenv
 
@@ -10,14 +12,95 @@ from dotenv import load_dotenv
 PROJECT_DIR = Path(__file__).resolve().parent
 load_dotenv(dotenv_path=PROJECT_DIR / ".env")
 
-LLM_PROVIDER = os.getenv("STUDYMATE_LLM_PROVIDER", "ollama").strip().lower()
+LLM_PROVIDER = os.getenv(
+    "STUDYMATE_LLM_PROVIDER", "ollama"
+).strip().lower()
 
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
+# Groq configuration
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = os.getenv(
+    "GROQ_MODEL", "openai/gpt-oss-20b"
+)
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+# Gemini configuration
+GEMINI_MODEL = os.getenv(
+    "GEMINI_MODEL", "gemini-3.8-flash"
+)
 
 _gemini_client = None
+
+# Ollama configuration
+OLLAMA_URL = os.getenv(
+    "OLLAMA_URL", "http://localhost:11434"
+)
+OLLAMA_MODEL = os.getenv(
+    "OLLAMA_MODEL", "qwen3:8b"
+)
+
+
+def _complete_with_groq(messages, model, temperature):
+    api_key = os.getenv("GROQ_API_KEY")
+
+    if not api_key:
+        raise RuntimeError(
+            "GROQ_API_KEY is missing. "
+            "Configure it in the backend .env file."
+        )
+
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "stream": False,
+    }
+
+    data = json.dumps(payload).encode("utf-8")
+
+    request = urllib.request.Request(
+        GROQ_API_URL,
+        data=data,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+            "User-Agent": "StudyMate/1.0",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            result = json.loads(
+                response.read().decode("utf-8")
+            )
+
+    except HTTPError as exc:
+        error_body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(
+            f"Groq API returned HTTP {exc.code}: {error_body}"
+        ) from exc
+
+    except URLError as exc:
+        raise RuntimeError(
+            f"Could not connect to Groq API: {exc.reason}"
+        ) from exc
+
+    choices = result.get("choices", [])
+
+    if not choices:
+        raise RuntimeError(
+            "Groq API returned no completion choices."
+        )
+
+    usage = result.get("usage") or {}
+
+    message = choices[0].get("message") or {}
+
+    return {
+        "text": message.get("content") or "",
+        "prompt_tokens": usage.get("prompt_tokens", 0) or 0,
+        "completion_tokens": usage.get("completion_tokens", 0) or 0,
+        "total_tokens": usage.get("total_tokens", 0) or 0,
+    }
 
 
 def _get_gemini_client():
@@ -28,7 +111,8 @@ def _get_gemini_client():
 
         if not api_key:
             raise RuntimeError(
-                "GEMINI_API_KEY is missing. Configure it in the backend .env file."
+                "GEMINI_API_KEY is missing. "
+                "Configure it in the backend .env file."
             )
 
         from google import genai
@@ -105,7 +189,9 @@ def _complete_with_ollama(messages, model, temperature):
     )
 
     with urllib.request.urlopen(request, timeout=300) as response:
-        result = json.loads(response.read().decode("utf-8"))
+        result = json.loads(
+            response.read().decode("utf-8")
+        )
 
     prompt_tokens = result.get("prompt_eval_count", 0)
     completion_tokens = result.get("eval_count", 0)
@@ -121,7 +207,14 @@ def _complete_with_ollama(messages, model, temperature):
 def complete(messages, model=None, temperature=0.2):
     start = time.time()
 
-    if LLM_PROVIDER == "gemini":
+    if LLM_PROVIDER == "groq":
+        result = _complete_with_groq(
+            messages,
+            model or GROQ_MODEL,
+            temperature,
+        )
+
+    elif LLM_PROVIDER == "gemini":
         result = _complete_with_gemini(
             messages,
             model or GEMINI_MODEL,
@@ -138,9 +231,11 @@ def complete(messages, model=None, temperature=0.2):
     else:
         raise ValueError(
             f"Unsupported STUDYMATE_LLM_PROVIDER: {LLM_PROVIDER}. "
-            "Supported providers: gemini, ollama."
+            "Supported providers: groq, gemini, ollama."
         )
 
-    result["latency_seconds"] = round(time.time() - start, 2)
+    result["latency_seconds"] = round(
+        time.time() - start, 2
+    )
 
     return result

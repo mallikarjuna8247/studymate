@@ -88,6 +88,10 @@ function App() {
   const [selectedKB, setSelectedKB] = useState('')
   const [documents, setDocuments] = useState<Document[]>([])
   const [selectedDocumentId, setSelectedDocumentId] = useState('')
+  // Create Knowledge Base state
+  const [newKBName, setNewKBName] = useState('')
+  const [newKBDescription, setNewKBDescription] = useState('')
+  const [creatingKB, setCreatingKB] = useState(false)
 
   // PDF upload state
   const [file, setFile] = useState<File | null>(null)
@@ -219,6 +223,100 @@ function App() {
       cancelled = true
     }
   }, [])
+
+
+  // --------------------------------------------------
+  // CREATE A NEW KNOWLEDGE BASE
+  // --------------------------------------------------
+
+  const handleCreateKnowledgeBase = async (
+    event: SubmitEvent<HTMLFormElement>
+  ) => {
+    event.preventDefault()
+
+    const name = newKBName.trim()
+    const description = newKBDescription.trim()
+
+    if (!name) {
+      setError('Please enter a Knowledge Base name.')
+      return
+    }
+
+    setCreatingKB(true)
+    setError('')
+
+    try {
+      const response = await fetch(`${API_URL}/knowledge-bases`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name,
+          description
+        })
+      })
+
+      const data: unknown = await response.json()
+
+      if (!response.ok) {
+        const detail =
+          typeof data === 'object' && data !== null
+            ? (data as Record<string, unknown>).detail
+            : undefined
+
+        throw new Error(
+          typeof detail === 'string'
+            ? detail
+            : 'Unable to create Knowledge Base.'
+        )
+      }
+
+      const responseData = data as Record<string, unknown>
+      const createdKB = responseData.knowledge_base as KnowledgeBase
+
+      const createdKBId = getKnowledgeBaseId(createdKB)
+
+      if (!createdKBId) {
+        throw new Error(
+          'Knowledge Base was created, but its ID was not returned.'
+        )
+      }
+
+      // Add the newly created Knowledge Base to the existing list
+      setKnowledgeBases((previous) => [
+        ...previous.filter(
+          (item) => getKnowledgeBaseId(item) !== createdKBId
+        ),
+        createdKB
+      ])
+
+      // Automatically select the new Knowledge Base
+      setSelectedKB(createdKBId)
+
+      // Reset creation form
+      setNewKBName('')
+      setNewKBDescription('')
+
+      setMessages((previous) => [
+        ...previous,
+        {
+          role: 'assistant',
+          text: `Knowledge Base "${name}" created successfully. You can now upload PDFs into it.`
+        }
+      ])
+
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Unable to create Knowledge Base.'
+      )
+    } finally {
+      setCreatingKB(false)
+    }
+  }
+
 
   // --------------------------------------------------
   // 2. LOAD DOCUMENTS FROM ALL KNOWLEDGE BASES
