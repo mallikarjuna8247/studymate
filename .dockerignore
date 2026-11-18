@@ -1,0 +1,37 @@
+﻿# Secrets
+.env
+.env.*
+
+# Python environments and caches
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Node dependencies
+node_modules/
+frontend/node_modules/
+
+# Build output
+dist/
+frontend/dist/
+build/
+
+# Existing application data (will be mounted separately)
+chroma_db/
+data/
+studymate_metadata.db
+studymate_metadata.db-*
+*.sqlite
+*.sqlite3
+
+# Git and editor files
+.git/
+.vscode/
+.idea/
+
+# Logs
+*.log
+logs/
