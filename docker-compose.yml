@@ -1,0 +1,48 @@
+﻿services:
+  backend:
+    image: studymate-backend:local
+    container_name: studymate-backend
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    environment:
+      STUDYMATE_DB_PATH: /app/studymate_metadata.db
+      STUDYMATE_DATA_DIR: /app/data
+      STUDYMATE_CHROMA_DIR: /app/chroma_db
+      OLLAMA_URL: ${STUDYMATE_OLLAMA_URL:-http://host.docker.internal:11434}
+
+    volumes:
+      - ./chroma_db:/app/chroma_db
+      - ./data:/app/data
+      - ./studymate_metadata.db:/app/studymate_metadata.db
+
+    expose:
+      - "8000"
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  frontend:
+    image: studymate-frontend:local
+    container_name: studymate-frontend
+    restart: unless-stopped
+
+    ports:
+      - "8080:80"
+
+    depends_on:
+      backend:
+        condition: service_healthy

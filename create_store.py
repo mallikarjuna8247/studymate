@@ -1,20 +1,83 @@
+
 import json
 import os
 import urllib.request
+import time
 
 import chromadb
 
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-EMBEDDING_MODEL = "nomic-embed-text"
+# --------------------------------------------------
+# Embedding configuration
+# --------------------------------------------------
+
+EMBEDDING_PROVIDER = os.getenv(
+    "STUDYMATE_EMBEDDING_PROVIDER", "ollama"
+).strip().lower()
+
+OLLAMA_URL = os.getenv(
+    "OLLAMA_URL", "http://localhost:11434"
+)
+
+OLLAMA_EMBEDDING_MODEL = os.getenv(
+    "OLLAMA_EMBEDDING_MODEL", "nomic-embed-text"
+)
+
+GEMINI_EMBEDDING_MODEL = os.getenv(
+    "GEMINI_EMBEDDING_MODEL", "gemini-embedding-001"
+)
+
+GEMINI_EMBEDDING_DIMENSIONS = int(
+    os.getenv("GEMINI_EMBEDDING_DIMENSIONS", "768")
+)
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# Preserve the existing Ollama collection.
+DEFAULT_COLLECTION = (
+    "studymate"
+    if EMBEDDING_PROVIDER == "ollama"
+    else f"studymate_{EMBEDDING_PROVIDER}"
+)
+
+COLLECTION_NAME = os.getenv(
+    "STUDYMATE_CHROMA_COLLECTION",
+    DEFAULT_COLLECTION,
+)
 
 CHROMA_DIR = os.path.expanduser(
     os.getenv("STUDYMATE_CHROMA_DIR", "./chroma_db")
 )
 
-chroma_client = chromadb.PersistentClient(
-    path=CHROMA_DIR
-)
+chroma_client = chromadb.PersistentClient(path=CHROMA_DIR)
 
+_gemini_client = None
+
+
+# --------------------------------------------------
+# Gemini client
+# --------------------------------------------------
+
+def get_gemini_client():
+    global _gemini_client
+
+    if _gemini_client is None:
+        if not GEMINI_API_KEY:
+            raise RuntimeError(
+                "GEMINI_API_KEY is not configured."
+            )
+
+        from google import genai
+
+        _gemini_client = genai.Client(
+            api_key=GEMINI_API_KEY
+        )
+
+    return _gemini_client
+
+
+# --------------------------------------------------
+# Ollama embedding
+# --------------------------------------------------
 
 def ollama_request(endpoint, payload):
     data = json.dumps(payload).encode("utf-8")
@@ -30,24 +93,113 @@ def ollama_request(endpoint, payload):
         return json.loads(response.read().decode("utf-8"))
 
 
-def get_collection():
-    return chroma_client.get_or_create_collection(
-        name="studymate",
-        metadata={"hnsw:space": "cosine"},
-    )
-
-
-def generate_embeddings(texts):
+def generate_ollama_embeddings(texts):
     response = ollama_request(
         "/api/embed",
         {
-            "model": EMBEDDING_MODEL,
+            "model": OLLAMA_EMBEDDING_MODEL,
             "input": texts,
         },
     )
 
     return response["embeddings"]
 
+
+# --------------------------------------------------
+# Gemini embedding
+# --------------------------------------------------
+
+def generate_gemini_embeddings(
+    texts,
+    task_type="RETRIEVAL_DOCUMENT",
+):
+    from google.genai import types
+
+    client = get_gemini_client()
+
+    response = client.models.embed_content(
+        model=GEMINI_EMBEDDING_MODEL,
+        contents=texts,
+        config=types.EmbedContentConfig(
+            task_type=task_type,
+            output_dimensionality=GEMINI_EMBEDDING_DIMENSIONS,
+        ),
+    )
+
+    return [
+        embedding.values
+        for embedding in response.embeddings
+    ]
+
+
+# --------------------------------------------------
+# Provider-independent embedding interface
+# --------------------------------------------------
+
+def generate_embeddings(
+    texts,
+    task_type="RETRIEVAL_DOCUMENT",
+):
+    if not texts:
+        return []
+
+    results = []
+
+    # Process in batches to avoid oversized requests.
+    batch_size = 100
+
+    for start in range(0, len(texts), batch_size):
+        batch = texts[start:start + batch_size]
+
+        if EMBEDDING_PROVIDER == "ollama":
+            embeddings = generate_ollama_embeddings(batch)
+
+        elif EMBEDDING_PROVIDER == "gemini":
+            embeddings = generate_gemini_embeddings(
+                batch,
+                task_type=task_type,
+            )
+
+        else:
+            raise ValueError(
+                f"Unsupported embedding provider: "
+                f"{EMBEDDING_PROVIDER}"
+            )
+
+        if len(embeddings) != len(batch):
+            raise RuntimeError(
+                "Embedding response count does not match input count."
+            )
+
+        results.extend(embeddings)
+
+    return results
+
+
+# --------------------------------------------------
+# ChromaDB collections
+# --------------------------------------------------
+
+def get_collection(name=None):
+    name = name or COLLECTION_NAME
+
+    return chroma_client.get_or_create_collection(
+        name=name,
+        metadata={
+            "hnsw:space": "cosine",
+            "embedding_provider": EMBEDDING_PROVIDER,
+            "embedding_model": (
+                OLLAMA_EMBEDDING_MODEL
+                if EMBEDDING_PROVIDER == "ollama"
+                else GEMINI_EMBEDDING_MODEL
+            ),
+        },
+    )
+
+
+# --------------------------------------------------
+# Add document chunks
+# --------------------------------------------------
 
 def add_chunks(
     chunks,
@@ -61,7 +213,11 @@ def add_chunks(
     collection = get_collection()
 
     texts = [chunk["text"] for chunk in chunks]
-    embeddings = generate_embeddings(texts)
+
+    embeddings = generate_embeddings(
+        texts,
+        task_type="RETRIEVAL_DOCUMENT",
+    )
 
     metadatas = []
 
@@ -71,7 +227,6 @@ def add_chunks(
             "page": chunk["page"],
         }
 
-        # Add KB metadata only for Knowledge Base uploads.
         if knowledge_base_id:
             metadata["knowledge_base_id"] = knowledge_base_id
 
@@ -87,9 +242,15 @@ def add_chunks(
         metadatas=metadatas,
     )
 
-    print(f"Stored {len(chunks)} chunks successfully.")
+    print(
+        f"Stored {len(chunks)} chunks in "
+        f"collection '{COLLECTION_NAME}'."
+    )
 
 
+# --------------------------------------------------
+# Search
+# --------------------------------------------------
 
 def search(
     query,
@@ -99,7 +260,6 @@ def search(
 ):
     collection = get_collection()
 
-    # Build metadata filters.
     filters = []
 
     if knowledge_base_id:
@@ -112,23 +272,19 @@ def search(
             "document_id": document_id
         })
 
-    # Support KB-wide and individual-document retrieval.
     where_filter = None
 
     if len(filters) == 1:
         where_filter = filters[0]
-    elif len(filters) > 1:
-        where_filter = {
-            "$and": filters
-        }
 
-    # Count only matching records.
+    elif len(filters) > 1:
+        where_filter = {"$and": filters}
+
     if where_filter:
         matching_records = collection.get(
             where=where_filter,
             include=[],
         )
-
         matching_count = len(matching_records["ids"])
 
     else:
@@ -142,7 +298,10 @@ def search(
 
     result_count = min(top_k, matching_count)
 
-    query_embedding = generate_embeddings([query])[0]
+    query_embedding = generate_embeddings(
+        [query],
+        task_type="RETRIEVAL_QUERY",
+    )[0]
 
     query_arguments = {
         "query_embeddings": [query_embedding],
@@ -153,3 +312,91 @@ def search(
         query_arguments["where"] = where_filter
 
     return collection.query(**query_arguments)
+
+
+# --------------------------------------------------
+# Migrate existing Ollama vectors to Gemini
+# --------------------------------------------------
+
+
+def migrate_ollama_to_gemini(batch_size=100):
+    source = chroma_client.get_collection(name="studymate")
+
+    target = chroma_client.get_or_create_collection(
+        name="studymate_gemini",
+        metadata={
+            "hnsw:space": "cosine",
+            "embedding_provider": "gemini",
+            "embedding_model": GEMINI_EMBEDDING_MODEL,
+        },
+    )
+
+    total = source.count()
+    migrated = target.count()
+
+    print(f"Source vectors: {total}")
+    print(f"Already migrated: {migrated}")
+
+    for offset in range(0, total, batch_size):
+        records = source.get(
+            limit=batch_size,
+            offset=offset,
+            include=["documents", "metadatas"],
+        )
+
+        ids = records["ids"]
+        documents = records["documents"]
+        metadatas = records["metadatas"]
+
+        if not ids:
+            continue
+
+        existing_ids = set(target.get(ids=ids)["ids"])
+
+        pending = [
+            i for i, doc_id in enumerate(ids)
+            if doc_id not in existing_ids
+        ]
+
+        if not pending:
+            continue
+
+        new_ids = [ids[i] for i in pending]
+        new_docs = [documents[i] for i in pending]
+        new_meta = [metadatas[i] for i in pending]
+
+        for attempt in range(5):
+            try:
+                embeddings = generate_gemini_embeddings(
+                    new_docs,
+                    task_type="RETRIEVAL_DOCUMENT",
+                )
+
+                target.upsert(
+                    ids=new_ids,
+                    embeddings=embeddings,
+                    documents=new_docs,
+                    metadatas=new_meta,
+                )
+
+                break
+
+            except Exception as exc:
+                if "429" not in str(exc) or attempt == 4:
+                    raise
+
+                wait_seconds = 60
+                print(
+                    f"Gemini rate limit reached. "
+                    f"Retrying in {wait_seconds} seconds..."
+                )
+                time.sleep(wait_seconds)
+
+        print(
+            f"Gemini collection: {target.count()}/{total}"
+        )
+
+    print("Migration completed.")
+    print("Original Ollama collection:", source.count())
+    print("Gemini collection:", target.count())
+
