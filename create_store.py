@@ -2,6 +2,7 @@
 import json
 import os
 import urllib.request
+import time
 
 import chromadb
 
@@ -317,10 +318,9 @@ def search(
 # Migrate existing Ollama vectors to Gemini
 # --------------------------------------------------
 
+
 def migrate_ollama_to_gemini(batch_size=100):
-    source = chroma_client.get_collection(
-        name="studymate"
-    )
+    source = chroma_client.get_collection(name="studymate")
 
     target = chroma_client.get_or_create_collection(
         name="studymate_gemini",
@@ -332,10 +332,10 @@ def migrate_ollama_to_gemini(batch_size=100):
     )
 
     total = source.count()
+    migrated = target.count()
 
     print(f"Source vectors: {total}")
-
-    migrated = 0
+    print(f"Already migrated: {migrated}")
 
     for offset in range(0, total, batch_size):
         records = source.get(
@@ -351,24 +351,52 @@ def migrate_ollama_to_gemini(batch_size=100):
         if not ids:
             continue
 
-        embeddings = generate_gemini_embeddings(
-            documents,
-            task_type="RETRIEVAL_DOCUMENT",
-        )
+        existing_ids = set(target.get(ids=ids)["ids"])
 
-        target.upsert(
-            ids=ids,
-            embeddings=embeddings,
-            documents=documents,
-            metadatas=metadatas,
-        )
+        pending = [
+            i for i, doc_id in enumerate(ids)
+            if doc_id not in existing_ids
+        ]
 
-        migrated += len(ids)
+        if not pending:
+            continue
+
+        new_ids = [ids[i] for i in pending]
+        new_docs = [documents[i] for i in pending]
+        new_meta = [metadatas[i] for i in pending]
+
+        for attempt in range(5):
+            try:
+                embeddings = generate_gemini_embeddings(
+                    new_docs,
+                    task_type="RETRIEVAL_DOCUMENT",
+                )
+
+                target.upsert(
+                    ids=new_ids,
+                    embeddings=embeddings,
+                    documents=new_docs,
+                    metadatas=new_meta,
+                )
+
+                break
+
+            except Exception as exc:
+                if "429" not in str(exc) or attempt == 4:
+                    raise
+
+                wait_seconds = 60
+                print(
+                    f"Gemini rate limit reached. "
+                    f"Retrying in {wait_seconds} seconds..."
+                )
+                time.sleep(wait_seconds)
 
         print(
-            f"Migrated {migrated}/{total} vectors."
+            f"Gemini collection: {target.count()}/{total}"
         )
 
     print("Migration completed.")
-    print("Source collection:", source.count())
+    print("Original Ollama collection:", source.count())
     print("Gemini collection:", target.count())
+
