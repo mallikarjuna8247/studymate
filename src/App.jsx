@@ -64,6 +64,14 @@ function App() {
 
   const fileInput = useRef(null)
 
+  const handleSelectKnowledgeBase = (knowledgeBaseId) => {
+    setDocuments([])
+    setSelectedDocumentId('')
+    setFile(null)
+    setError('')
+    setSelectedKB(knowledgeBaseId)
+  }
+
   const completedDocuments = documents.filter(
     (document) => document.status === 'COMPLETED'
   )
@@ -254,20 +262,52 @@ function App() {
     }
   }
 
-  // Refresh document list when Knowledge Base changes.
+  // Refresh documents when the selected Knowledge Base changes.
   useEffect(() => {
     if (!selectedKB) return
 
-    setDocuments([])
-    setSelectedDocumentId('')
-    setFile(null)
-    setError('')
+    let cancelled = false
 
-    loadDocuments(selectedKB).catch((err) => {
-      setError(
-        err.message || 'Unable to load documents.'
-      )
-    })
+    const fetchDocuments = async () => {
+      try {
+        const response = await fetch(
+          `${API_URL}/knowledge-bases/${selectedKB}/documents`
+        )
+
+        const data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(
+            data.detail || 'Unable to load documents.'
+          )
+        }
+
+        const items = getItems(data, [
+          'documents',
+          'items'
+        ])
+
+        if (!cancelled) {
+          setDocuments(items)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err.message || 'Unable to load documents.'
+          )
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingDocuments(false)
+        }
+      }
+    }
+
+    fetchDocuments()
+
+    return () => {
+      cancelled = true
+    }
   }, [selectedKB])
 
   // Upload PDF into the selected Knowledge Base.
@@ -665,7 +705,7 @@ function App() {
                 id="knowledge-base"
                 value={selectedKB}
                 onChange={(event) =>
-                  setSelectedKB(event.target.value)
+                  handleSelectKnowledgeBase(event.target.value)
                 }
                 disabled={
                   loadingKBs || uploading || asking

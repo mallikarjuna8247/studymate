@@ -198,7 +198,7 @@ function App() {
               .includes('discovery agent')
           )
 
-          setSelectedKB(
+          handleSelectKnowledgeBase(
             getKnowledgeBaseId(discoveryKB || items[0])
           )
         }
@@ -292,7 +292,7 @@ function App() {
       ])
 
       // Automatically select the new Knowledge Base
-      setSelectedKB(createdKBId)
+      handleSelectKnowledgeBase(createdKBId)
 
       // Reset creation form
       setNewKBName('')
